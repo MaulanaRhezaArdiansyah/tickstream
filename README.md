@@ -18,7 +18,7 @@ docker compose up -d          # PostgreSQL di localhost:5432
 
 cd server
 cp .env.example .env
-cargo run                     # http://localhost:3000
+cargo run                     # http://localhost:8080
 ```
 
-Cek: `curl http://localhost:3000/health` → `ok`.
+Cek: `curl http://localhost:8080/health` → `ok`.

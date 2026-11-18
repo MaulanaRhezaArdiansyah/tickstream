@@ -22,4 +22,4 @@ cargo run                     # http://localhost:8080
 ```
 
 Cek: `curl http://localhost:8080/health` → `ok`.
-Quote: `curl "http://localhost:8080/api/quote?symbol=NVDA"`.
+Endpoint: `/api/quote?symbol=NVDA`, `/api/profile?symbol=NVDA`, `/api/market-status`.

@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use tracing_subscriber::EnvFilter;
 
-use crate::{config::Config, finnhub::FinnhubRest, state::AppState};
+use crate::{config::Config, finnhub::FinnhubRest, market::MarketCache, state::AppState};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -24,8 +24,9 @@ async fn main() -> anyhow::Result<()> {
 
     let config = Config::from_env()?;
 
+    let finnhub = Arc::new(FinnhubRest::new(&config.finnhub_api_key)?);
     let state = AppState {
-        market: Arc::new(FinnhubRest::new(&config.finnhub_api_key)?),
+        market: Arc::new(MarketCache::new(finnhub)),
     };
     let app = routes::router(state);
 

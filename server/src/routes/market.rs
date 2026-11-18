@@ -4,7 +4,11 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::{error::AppError, market::Quote, state::AppState};
+use crate::{
+    error::AppError,
+    market::{MarketStatus, Profile, Quote},
+    state::AppState,
+};
 
 #[derive(Deserialize)]
 pub struct SymbolQuery {
@@ -17,8 +21,21 @@ pub async fn quote(
     Query(params): Query<SymbolQuery>,
 ) -> Result<Json<Quote>, AppError> {
     let symbol = normalize_symbol(&params.symbol)?;
-    let quote = state.market.quote(&symbol).await?;
-    Ok(Json(quote))
+    Ok(Json(state.market.quote(&symbol).await?))
+}
+
+/// `GET /api/profile?symbol=NVDA`
+pub async fn profile(
+    State(state): State<AppState>,
+    Query(params): Query<SymbolQuery>,
+) -> Result<Json<Profile>, AppError> {
+    let symbol = normalize_symbol(&params.symbol)?;
+    Ok(Json(state.market.profile(&symbol).await?))
+}
+
+/// `GET /api/market-status` (bursa US)
+pub async fn market_status(State(state): State<AppState>) -> Result<Json<MarketStatus>, AppError> {
+    Ok(Json(state.market.market_status().await?))
 }
 
 /// `" nvda "` → `"NVDA"`. Ticker US: huruf/angka, boleh titik atau strip (mis. `BRK.B`), maks 10 karakter.

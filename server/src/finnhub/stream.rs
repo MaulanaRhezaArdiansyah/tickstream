@@ -2,6 +2,9 @@
 //!
 //! Pola actor: satu task memegang koneksi dan daftar simbol. Bagian lain server cuma
 //! mengirim perintah lewat channel, jadi nggak ada state bersama dan nggak perlu `Mutex`.
+//!
+//! Free tier efektifnya cuma boleh SATU koneksi WS per API key. Dua proses dengan key yang
+//! sama (mis. dua `cargo run`) bakal saling tendang: koneksi di-reset tiap beberapa detik.
 
 use std::{collections::BTreeSet, time::Duration};
 
@@ -9,10 +12,10 @@ use anyhow::{Context, bail};
 use futures_util::{SinkExt, StreamExt};
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
-use crate::market::Trade;
+use crate::market::{Trade, TradeBatch, TradeFeed};
 
 /// Garis miring di akhir itu wajib. Tanpa path, tungstenite menulis `GET ?token=...`
 /// (bukan `GET /?token=...`) dan nginx Finnhub membalas 400.
@@ -30,42 +33,56 @@ const STABLE_AFTER: Duration = Duration::from_secs(30);
 
 enum Command {
     Subscribe(String),
+    Unsubscribe(String),
 }
 
-/// Pegangan untuk bicara ke task stream. Murah di-clone: isinya cuma ujung kirim channel.
-/// Kalau semua pegangan di-drop, task-nya ikut berhenti.
-#[derive(Clone)]
+/// Pegangan untuk bicara ke task stream. Kalau pegangan di-drop, task-nya ikut berhenti.
+///
+/// Channel-nya unbounded supaya kirim perintah bisa sinkron: unsubscribe dipanggil dari
+/// `Drop`, yang nggak bisa `.await`. Aman karena perintah cuma muncul saat jumlah pemakai
+/// simbol berubah 0↔1, dan simbol dibatasi 50.
 pub struct FinnhubStream {
-    commands: mpsc::Sender<Command>,
+    commands: mpsc::UnboundedSender<Command>,
 }
 
 impl FinnhubStream {
-    /// Jalankan task upstream di background dan kembalikan pegangannya.
-    pub fn spawn(api_key: &SecretString) -> Self {
+    /// Jalankan task upstream di background. Trade yang masuk dikirim ke `trades`.
+    pub fn spawn(api_key: &SecretString, trades: broadcast::Sender<TradeBatch>) -> Self {
         // Task butuh salinan key miliknya sendiri, karena ia hidup lebih lama dari pemanggil.
         let api_key = SecretString::from(api_key.expose_secret().to_owned());
-        let (commands, rx) = mpsc::channel(64);
-        tokio::spawn(run(api_key, rx));
+        let (commands, rx) = mpsc::unbounded_channel();
+        tokio::spawn(run(api_key, rx, trades));
         Self { commands }
     }
 
-    pub async fn subscribe(&self, symbol: &str) {
+    fn send(&self, command: Command) {
         // Kirim cuma gagal kalau task sudah berhenti; di titik itu nggak ada yang bisa dilakukan.
-        let _ = self
-            .commands
-            .send(Command::Subscribe(symbol.to_string()))
-            .await;
+        let _ = self.commands.send(command);
+    }
+}
+
+impl TradeFeed for FinnhubStream {
+    fn subscribe(&self, symbol: &str) {
+        self.send(Command::Subscribe(symbol.to_string()));
+    }
+
+    fn unsubscribe(&self, symbol: &str) {
+        self.send(Command::Unsubscribe(symbol.to_string()));
     }
 }
 
 /// Loop utama actor: buka sesi, kalau putus tunggu (backoff) lalu buka lagi.
-async fn run(api_key: SecretString, mut commands: mpsc::Receiver<Command>) {
+async fn run(
+    api_key: SecretString,
+    mut commands: mpsc::UnboundedReceiver<Command>,
+    trades: broadcast::Sender<TradeBatch>,
+) {
     // Daftar simbol yang *diinginkan*. Hidup di luar sesi supaya selamat melewati reconnect.
     let mut symbols = BTreeSet::new();
     let mut backoff = MIN_BACKOFF;
 
     loop {
-        match session(&api_key, &mut symbols, &mut commands, &mut backoff).await {
+        match session(&api_key, &mut symbols, &mut commands, &trades, &mut backoff).await {
             Ok(()) => {
                 tracing::info!("finnhub stream berhenti: semua pegangan sudah di-drop");
                 return;
@@ -84,7 +101,8 @@ async fn run(api_key: SecretString, mut commands: mpsc::Receiver<Command>) {
 async fn session(
     api_key: &SecretString,
     symbols: &mut BTreeSet<String>,
-    commands: &mut mpsc::Receiver<Command>,
+    commands: &mut mpsc::UnboundedReceiver<Command>,
+    trades: &broadcast::Sender<TradeBatch>,
     backoff: &mut Duration,
 ) -> anyhow::Result<()> {
     // Finnhub cuma menerima token lewat query string di WS. URL ini jangan pernah di-log.
@@ -96,7 +114,7 @@ async fn session(
 
     // Koneksi baru belum tahu apa-apa: kirim ulang semua simbol yang masih diinginkan.
     for symbol in symbols.iter() {
-        sink.send(subscribe_message(symbol)).await?;
+        sink.send(control_message("subscribe", symbol)).await?;
     }
 
     loop {
@@ -108,7 +126,14 @@ async fn session(
                     // Catat dulu sebagai keinginan, baru kirim: kalau kirimnya gagal,
                     // simbol ini tetap ikut di-subscribe ulang setelah reconnect.
                     if symbols.insert(symbol.clone()) {
-                        sink.send(subscribe_message(&symbol)).await?;
+                        tracing::debug!(%symbol, "upstream subscribe");
+                        sink.send(control_message("subscribe", &symbol)).await?;
+                    }
+                }
+                Some(Command::Unsubscribe(symbol)) => {
+                    if symbols.remove(&symbol) {
+                        tracing::debug!(%symbol, "upstream unsubscribe");
+                        sink.send(control_message("unsubscribe", &symbol)).await?;
                     }
                 }
             },
@@ -123,7 +148,7 @@ async fn session(
                 if connected_at.elapsed() >= STABLE_AFTER {
                     *backoff = MIN_BACKOFF;
                 }
-                handle_message(message)?;
+                handle_message(message, trades)?;
             }
         }
     }
@@ -138,19 +163,13 @@ enum Upstream {
     Error { msg: String },
 }
 
-fn handle_message(message: Message) -> anyhow::Result<()> {
+fn handle_message(message: Message, trades: &broadcast::Sender<TradeBatch>) -> anyhow::Result<()> {
     match message {
         Message::Text(text) => match serde_json::from_str::<Upstream>(&text) {
             Ok(Upstream::Trade { data }) => {
-                for trade in data {
-                    tracing::debug!(
-                        symbol = %trade.symbol,
-                        price = trade.price,
-                        volume = trade.volume,
-                        ts_ms = trade.timestamp,
-                        "trade"
-                    );
-                }
+                tracing::trace!(count = data.len(), "trades");
+                // Gagal cuma kalau belum ada client yang mendengarkan; trade-nya memang dibuang.
+                let _ = trades.send(data.into());
             }
             Ok(Upstream::Ping) => tracing::trace!("ping"),
             Ok(Upstream::Error { msg }) => tracing::warn!(%msg, "finnhub stream error"),
@@ -163,8 +182,8 @@ fn handle_message(message: Message) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn subscribe_message(symbol: &str) -> Message {
-    Message::text(serde_json::json!({ "type": "subscribe", "symbol": symbol }).to_string())
+fn control_message(kind: &str, symbol: &str) -> Message {
+    Message::text(serde_json::json!({ "type": kind, "symbol": symbol }).to_string())
 }
 
 #[cfg(test)]

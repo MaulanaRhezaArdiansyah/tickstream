@@ -24,6 +24,9 @@ cargo run                     # http://localhost:8080
 Cek: `curl http://localhost:8080/health` → `ok`.
 Endpoint: `/api/quote?symbol=NVDA`, `/api/profile?symbol=NVDA`, `/api/market-status`.
 
+Catatan: Finnhub free cuma mengizinkan satu koneksi WebSocket per API key. Jangan jalankan
+dua server dengan key yang sama; koneksinya bakal saling memutus.
+
 ### Web (React + Vite)
 
 ```sh

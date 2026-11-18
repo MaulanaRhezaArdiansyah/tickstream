@@ -1,4 +1,5 @@
 mod market;
+mod ws;
 
 use axum::{Router, routing::get};
 
@@ -10,6 +11,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/quote", get(market::quote))
         .route("/api/profile", get(market::profile))
         .route("/api/market-status", get(market::market_status))
+        .route("/ws", get(ws::ws))
         .with_state(state)
 }
 

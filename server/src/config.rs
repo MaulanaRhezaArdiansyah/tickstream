@@ -1,10 +1,13 @@
 use std::net::SocketAddr;
 
 use anyhow::Context;
+use secrecy::SecretString;
 
 /// Konfigurasi server, dibaca sekali dari environment saat startup.
 pub struct Config {
     pub bind_addr: SocketAddr,
+    /// `SecretString` nggak bisa ke-print lewat `{:?}`, jadi key aman dari log yang nggak disengaja.
+    pub finnhub_api_key: SecretString,
 }
 
 impl Config {
@@ -14,6 +17,15 @@ impl Config {
             .parse()
             .context("BIND_ADDR harus berformat host:port, mis. 127.0.0.1:8080")?;
 
-        Ok(Self { bind_addr })
+        let finnhub_api_key: SecretString = std::env::var("FINNHUB_API_KEY")
+            .ok()
+            .filter(|key| !key.trim().is_empty())
+            .context("FINNHUB_API_KEY wajib diisi di server/.env")?
+            .into();
+
+        Ok(Self {
+            bind_addr,
+            finnhub_api_key,
+        })
     }
 }

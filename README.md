@@ -17,8 +17,9 @@ Dashboard saham US real-time. Port dari PoC vanilla JS (`us-stock-dashboard.html
 docker compose up -d          # PostgreSQL di localhost:5432
 
 cd server
-cp .env.example .env
+cp .env.example .env          # isi FINNHUB_API_KEY
 cargo run                     # http://localhost:8080
 ```
 
 Cek: `curl http://localhost:8080/health` → `ok`.
+Quote: `curl "http://localhost:8080/api/quote?symbol=NVDA"`.

@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>US Stock Live Dashboard</title>
+<style>
+  :root {
+    --bg: #0b0e14; --panel: #131824; --panel2: #1a2030; --line: #252d40;
+    --text: #e6e9ef; --muted: #8a93a6; --up: #22c55e; --down: #ef4444; --accent: #60a5fa;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
+    padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--panel); position: sticky; top: 0; z-index: 5; }
+  h1 { font-size: 16px; margin: 0; letter-spacing: .3px; }
+  .status { display: flex; gap: 14px; align-items: center; color: var(--muted); font-size: 12px; flex-wrap: wrap; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; background: var(--muted); }
+  .dot.on { background: var(--up); box-shadow: 0 0 8px var(--up); }
+  .dot.off { background: var(--down); }
+  main { padding: 16px 20px; max-width: 1400px; margin: 0 auto; }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+  input, button { font: inherit; color: var(--text); background: var(--panel2); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 12px; }
+  input:focus { outline: 1px solid var(--accent); }
+  button { cursor: pointer; }
+  button.primary { background: var(--accent); color: #0b0e14; border-color: var(--accent); font-weight: 600; }
+  button:hover { filter: brightness(1.15); }
+  #symInput { text-transform: uppercase; width: 160px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; position: relative;
+    transition: border-color .4s; }
+  .card.flash-up { border-color: var(--up); }
+  .card.flash-down { border-color: var(--down); }
+  .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .sym { font-weight: 700; font-size: 16px; }
+  .name { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 170px; }
+  .x { background: none; border: none; color: var(--muted); padding: 0 4px; font-size: 16px; }
+  .price { font-size: 26px; font-weight: 700; margin: 8px 0 2px; font-variant-numeric: tabular-nums; }
+  .chg { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .up { color: var(--up); } .down { color: var(--down); }
+  canvas { width: 100%; height: 56px; display: block; margin: 10px 0 8px; }
+  .meta { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; font-size: 11px; color: var(--muted); }
+  .meta b { display: block; color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
+  .foot { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 8px; }
+  .modal { position: fixed; inset: 0; background: rgba(0,0,0,.7); display: none; align-items: center; justify-content: center; z-index: 10; padding: 16px; }
+  .modal.show { display: flex; }
+  .box { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 22px; max-width: 440px; width: 100%; }
+  .box h2 { margin: 0 0 8px; font-size: 18px; }
+  .box p { color: var(--muted); margin: 0 0 14px; }
+  .box a { color: var(--accent); }
+  .box input { width: 100%; margin-bottom: 12px; }
+  .toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--panel2);
+    border: 1px solid var(--line); padding: 10px 16px; border-radius: 10px; font-size: 13px; opacity: 0; transition: opacity .3s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+  .empty { color: var(--muted); text-align: center; padding: 40px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>📈 US Stock Live</h1>
+  <div class="status">
+    <span><span id="wsDot" class="dot"></span><span id="wsText">Disconnected</span></span>
+    <span id="mktText">Market: –</span>
+    <span id="clock"></span>
+    <span id="tickRate">0 ticks/s</span>
+  </div>
+</header>
+
+<main>
+  <div class="bar">
+    <input id="symInput" placeholder="Ticker, mis. NVDA" maxlength="10">
+    <button class="primary" id="addBtn">+ Tambah</button>
+    <button id="refreshBtn">↻ Refresh quote</button>
+    <button id="keyBtn">🔑 API key</button>
+  </div>
+  <div id="grid" class="grid"></div>
+</main>
+
+<div id="keyModal" class="modal">
+  <div class="box">
+    <h2>Finnhub API key</h2>
+    <p>Daftar gratis di <a href="https://finnhub.io/register" target="_blank" rel="noopener">finnhub.io/register</a>, lalu copy API key dari dashboard. Key cuma disimpan di browser ini (localStorage).</p>
+    <input id="keyInput" placeholder="Paste API key di sini" autocomplete="off">
+    <div style="display:flex; gap:8px; justify-content:flex-end">
+      <button id="keyCancel">Batal</button>
+      <button class="primary" id="keySave">Simpan & Connect</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+(() => {
+  const API = 'https://finnhub.io/api/v1';
+  const WS_URL = 'wss://ws.finnhub.io';
+  const MAX_SYMBOLS = 50;          // batas WebSocket free tier
+  const MAX_POINTS = 300;          // titik sparkline per simbol
+  const DEFAULT_SYMS = ['AAPL','NVDA','MSFT','TSLA','AMZN','GOOGL','META','SPY'];
+
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+  };
+
+  let apiKey = store.get('fh_key', '');
+  let symbols = store.get('fh_syms', DEFAULT_SYMS);
+  const state = {};   // sym -> {price, pc, o, h, l, dp, name, pts:[], lastTs, vol, dirty}
+  let ws = null, reconnectDelay = 1000, tickCount = 0;
+
+  const $ = id => document.getElementById(id);
+  const grid = $('grid');
+
+  // ---------- helpers ----------
+  const fmt = n => n == null || isNaN(n) ? '–' : n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtVol = n => n >= 1e6 ? (n/1e6).toFixed(2)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'K' : String(n || 0);
+  function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 2500); }
+  async function api(path) {
+    const r = await fetch(`${API}${path}${path.includes('?') ? '&' : '?'}token=${encodeURIComponent(apiKey)}`);
+    if (r.status === 429) throw new Error('Rate limit (60/menit) kena, tunggu sebentar');
+    if (r.status === 401 || r.status === 403) throw new Error('API key salah / endpoint premium');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  }
+  const save = () => store.set('fh_syms', symbols);
+
+  // ---------- cards ----------
+  function ensureState(sym) {
+    if (!state[sym]) state[sym] = { price: null, pc: null, o: null, h: null, l: null, name: '', pts: [], lastTs: null, vol: 0, dirty: true };
+    return state[sym];
+  }
+
+  function buildCard(sym) {
+    const el = document.createElement('div');
+    el.className = 'card'; el.id = 'card-' + sym;
+    el.innerHTML = `
+      <div class="top">
+        <div><div class="sym">${sym}</div><div class="name" data-f="name">&nbsp;</div></div>
+        <button class="x" title="Hapus">✕</button>
+      </div>
+      <div class="price" data-f="price">–</div>
+      <div class="chg" data-f="chg">–</div>
+      <canvas></canvas>
+      <div class="meta">
+        <div>Open<b data-f="o">–</b></div><div>High<b data-f="h">–</b></div>
+        <div>Low<b data-f="l">–</b></div><div>Prev<b data-f="pc">–</b></div>
+      </div>
+      <div class="foot"><span data-f="vol">Vol (sesi ini): 0</span><span data-f="ts">–</span></div>`;
+    el.querySelector('.x').onclick = () => removeSymbol(sym);
+    return el;
+  }
+
+  function renderAll() {
+    grid.innerHTML = '';
+    if (!symbols.length) { grid.innerHTML = '<div class="empty">Watchlist kosong. Tambah ticker di atas.</div>'; return; }
+    symbols.forEach(s => { ensureState(s).dirty = true; grid.appendChild(buildCard(s)); });
+  }
+
+  function drawSpark(canvas, pts, color) {
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    if (canvas.width !== w * dpr) { canvas.width = w * dpr; canvas.height = h * dpr; }
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    if (pts.length < 2) return;
+    let min = Infinity, max = -Infinity;
+    for (const p of pts) { if (p < min) min = p; if (p > max) max = p; }
+    if (max === min) { max += 0.01; min -= 0.01; }
+    const x = i => (i / (pts.length - 1)) * w;
+    const y = v => h - 3 - ((v - min) / (max - min)) * (h - 6);
+    ctx.beginPath();
+    pts.forEach((p, i) => i ? ctx.lineTo(x(i), y(p)) : ctx.moveTo(x(i), y(p)));
+    ctx.strokeStyle = color; ctx.lineWidth = 1.6; ctx.stroke();
+    ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath();
+    const g = ctx.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, color + '55'); g.addColorStop(1, color + '00');
+    ctx.fillStyle = g; ctx.fill();
+  }
+
+  function paint() {
+    for (const sym of symbols) {
+      const s = state[sym]; if (!s || !s.dirty) continue;
+      const el = $('card-' + sym); if (!el) continue;
+      const f = k => el.querySelector(`[data-f="${k}"]`);
+      const ch = s.price != null && s.pc ? s.price - s.pc : null;
+      const pct = ch != null ? ch / s.pc * 100 : null;
+      const cls = ch == null ? '' : ch >= 0 ? 'up' : 'down';
+      f('name').textContent = s.name || ' ';
+      f('price').textContent = s.price != null ? '$' + fmt(s.price) : '–';
+      const chEl = f('chg');
+      chEl.className = 'chg ' + cls;
+      chEl.textContent = ch == null ? '–' : `${ch >= 0 ? '+' : ''}${fmt(ch)} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;
+      f('o').textContent = fmt(s.o); f('h').textContent = fmt(s.h); f('l').textContent = fmt(s.l); f('pc').textContent = fmt(s.pc);
+      f('vol').textContent = 'Vol (sesi ini): ' + fmtVol(s.vol);
+      f('ts').textContent = s.lastTs ? new Date(s.lastTs).toLocaleTimeString('id-ID') : '–';
+      drawSpark(el.querySelector('canvas'), s.pts, ch == null || ch >= 0 ? '#22c55e' : '#ef4444');
+      if (s.flash) {
+        el.classList.remove('flash-up', 'flash-down'); el.classList.add('flash-' + s.flash);
+        clearTimeout(el._f); el._f = setTimeout(() => el.classList.remove('flash-up', 'flash-down'), 400);
+        s.flash = null;
+      }
+      s.dirty = false;
+    }
+    requestAnimationFrame(paint);
+  }
+
+  // ---------- REST: quote + profile ----------
+  async function loadQuote(sym, withProfile) {
+    const s = ensureState(sym);
+    try {
+      const q = await api(`/quote?symbol=${sym}`);
+      if (!q || (q.c === 0 && q.pc === 0)) { toast(`${sym}: ticker tidak ditemukan`); return false; }
+      s.pc = q.pc; s.o = q.o; s.h = q.h; s.l = q.l;
+      if (s.price == null) s.price = q.c;
+      if (!s.pts.length) s.pts.push(q.c);
+      if (!s.lastTs && q.t) s.lastTs = q.t * 1000;
+      if (withProfile && !s.name) {
+        try { const p = await api(`/stock/profile2?symbol=${sym}`); s.name = p.name || ''; } catch {}
+      }
+      s.dirty = true; return true;
+    } catch (e) { toast(`${sym}: ${e.message}`); return false; }
+  }
+
+  async function loadAllQuotes(withProfile) {
+    // jalan berurutan biar aman dari rate limit 60/menit
+    for (const sym of [...symbols]) { await loadQuote(sym, withProfile); await new Promise(r => setTimeout(r, withProfile ? 1100 : 600)); }
+  }
+
+  async function loadMarketStatus() {
+    try {
+      const m = await api('/stock/market-status?exchange=US');
+      const label = m.isOpen ? `Open${m.session ? ' (' + m.session + ')' : ''}` : (m.session ? m.session : 'Closed');
+      $('mktText').innerHTML = `Market: <b class="${m.isOpen ? 'up' : 'down'}">${label}</b>`;
+    } catch { $('mktText').textContent = 'Market: –'; }
+  }
+
+  // ---------- WebSocket ----------
+  function setWs(on, text) { $('wsDot').className = 'dot ' + (on ? 'on' : 'off'); $('wsText').textContent = text; }
+
+  function connect() {
+    if (!apiKey) return;
+    if (ws) { ws.onclose = null; ws.close(); }
+    setWs(false, 'Connecting…');
+    ws = new WebSocket(`${WS_URL}?token=${encodeURIComponent(apiKey)}`);
+    ws.onopen = () => {
+      reconnectDelay = 1000; setWs(true, 'Live');
+      symbols.forEach(s => ws.send(JSON.stringify({ type: 'subscribe', symbol: s })));
+    };
+    ws.onmessage = ev => {
+      let msg; try { msg = JSON.parse(ev.data); } catch { return; }
+      if (msg.type === 'error') { toast('WS: ' + msg.msg); return; }
+      if (msg.type !== 'trade' || !msg.data) return;
+      for (const t of msg.data) {
+        const s = state[t.s]; if (!s) continue;
+        tickCount++;
+        if (s.price != null && t.p !== s.price) s.flash = t.p > s.price ? 'up' : 'down';
+        s.price = t.p; s.lastTs = t.t; s.vol += t.v || 0;
+        if (s.h != null && t.p > s.h) s.h = t.p;
+        if (s.l != null && s.l > 0 && t.p < s.l) s.l = t.p;
+        s.pts.push(t.p); if (s.pts.length > MAX_POINTS) s.pts.shift();
+        s.dirty = true;
+      }
+    };
+    ws.onclose = () => {
+      setWs(false, `Reconnect ${Math.round(reconnectDelay/1000)}s…`);
+      setTimeout(connect, reconnectDelay);
+      reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+    };
+    ws.onerror = () => {};
+  }
+
+  const wsSend = (type, symbol) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type, symbol })); };
+
+  // ---------- watchlist ----------
+  async function addSymbol() {
+    const sym = $('symInput').value.trim().toUpperCase();
+    if (!sym) return;
+    if (symbols.includes(sym)) { toast(`${sym} sudah ada`); return; }
+    if (symbols.length >= MAX_SYMBOLS) { toast(`Free tier max ${MAX_SYMBOLS} simbol`); return; }
+    if (!apiKey) { openKey(); return; }
+    $('symInput').value = '';
+    symbols.push(sym); save();
+    if (symbols.length === 1) grid.innerHTML = '';
+    grid.appendChild(buildCard(sym));
+    const ok = await loadQuote(sym, true);
+    if (!ok) { removeSymbol(sym); return; }
+    wsSend('subscribe', sym);
+  }
+
+  function removeSymbol(sym) {
+    symbols = symbols.filter(s => s !== sym); save();
+    wsSend('unsubscribe', sym); delete state[sym];
+    const el = $('card-' + sym); if (el) el.remove();
+    if (!symbols.length) renderAll();
+  }
+
+  // ---------- key modal ----------
+  function openKey() { $('keyInput').value = apiKey; $('keyModal').classList.add('show'); $('keyInput').focus(); }
+  function closeKey() { $('keyModal').classList.remove('show'); }
+  $('keyBtn').onclick = openKey;
+  $('keyCancel').onclick = closeKey;
+  $('keySave').onclick = () => {
+    const k = $('keyInput').value.trim(); if (!k) return;
+    apiKey = k; store.set('fh_key', k); closeKey(); start();
+  };
+
+  $('addBtn').onclick = addSymbol;
+  $('symInput').addEventListener('keydown', e => { if (e.key === 'Enter') addSymbol(); });
+  $('refreshBtn').onclick = () => { loadAllQuotes(false); loadMarketStatus(); toast('Refresh quote…'); };
+
+  // ---------- clock + tick rate ----------
+  setInterval(() => {
+    const now = new Date();
+    const ny = now.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: '2-digit', minute: '2-digit' });
+    const wib = now.toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta', hour: '2-digit', minute: '2-digit' });
+    $('clock').textContent = `NY ${ny} · WIB ${wib}`;
+    $('tickRate').textContent = `${tickCount} ticks/s`; tickCount = 0;
+  }, 1000);
+
+  function start() {
+    renderAll();
+    loadMarketStatus();
+    loadAllQuotes(true);
+    connect();
+  }
+
+  // refresh market status tiap 5 menit, quote (prev close/OHLC) tiap 10 menit
+  setInterval(() => apiKey && loadMarketStatus(), 5 * 60 * 1000);
+  setInterval(() => apiKey && loadAllQuotes(false), 10 * 60 * 1000);
+
+  requestAnimationFrame(paint);
+  if (apiKey) start(); else { renderAll(); openKey(); }
+})();
+</script>
+</body>
+</html>

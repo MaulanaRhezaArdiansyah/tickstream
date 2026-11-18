@@ -23,3 +23,13 @@ cargo run                     # http://localhost:8080
 
 Cek: `curl http://localhost:8080/health` → `ok`.
 Endpoint: `/api/quote?symbol=NVDA`, `/api/profile?symbol=NVDA`, `/api/market-status`.
+
+### Web (React + Vite)
+
+```sh
+cd web
+npm install
+npm run dev                   # http://localhost:5173, /api diteruskan ke server :8080
+```
+
+Server di port lain? `API_TARGET=http://127.0.0.1:8090 npm run dev`.

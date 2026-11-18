@@ -44,6 +44,20 @@ pub struct MarketStatus {
     pub session: Option<String>,
 }
 
+/// Satu transaksi dari stream real-time.
+#[derive(Debug, Deserialize)]
+pub struct Trade {
+    #[serde(rename = "s")]
+    pub symbol: String,
+    #[serde(rename = "p")]
+    pub price: f64,
+    /// Unix timestamp dalam milidetik.
+    #[serde(rename = "t")]
+    pub timestamp: i64,
+    #[serde(rename = "v")]
+    pub volume: f64,
+}
+
 /// `Clone` dibutuhkan cache: satu error dibagi ke semua request yang nunggu hasil yang sama.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum MarketError {

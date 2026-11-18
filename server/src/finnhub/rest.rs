@@ -4,8 +4,9 @@ use async_trait::async_trait;
 use governor::{DefaultDirectRateLimiter, Quota, RateLimiter};
 use reqwest::{StatusCode, header::HeaderValue};
 use secrecy::{ExposeSecret, SecretString};
+use serde::de::DeserializeOwned;
 
-use crate::market::{MarketDataSource, MarketError, Quote};
+use crate::market::{MarketDataSource, MarketError, MarketStatus, Profile, Quote};
 
 const BASE_URL: &str = "https://finnhub.io/api/v1";
 
@@ -42,16 +43,18 @@ impl FinnhubRest {
         })
     }
 
-    /// GET ke Finnhub: tunggu jatah limiter, kirim, lalu terjemahkan status HTTP ke `MarketError`.
-    async fn get(
+    /// GET ke Finnhub lalu parse JSON jadi `T`: tunggu jatah limiter, kirim,
+    /// terjemahkan status HTTP ke `MarketError`. Tipe `T` ditentukan pemanggil.
+    async fn get_json<T: DeserializeOwned>(
         &self,
         path: &str,
         query: &[(&str, &str)],
-    ) -> Result<reqwest::Response, MarketError> {
+    ) -> Result<T, MarketError> {
         tokio::time::timeout(MAX_WAIT, self.limiter.until_ready())
             .await
             .map_err(|_| MarketError::RateLimited)?;
 
+        tracing::debug!(path, ?query, "finnhub request");
         let res = self
             .http
             .get(format!("{BASE_URL}{path}"))
@@ -62,30 +65,46 @@ impl FinnhubRest {
             .map_err(|e| MarketError::Upstream(e.to_string()))?;
 
         match res.status() {
-            status if status.is_success() => Ok(res),
-            StatusCode::TOO_MANY_REQUESTS => Err(MarketError::RateLimited),
+            status if status.is_success() => {}
             // 401 = "Invalid API key"; 403 = "You don't have access to this resource."
-            StatusCode::UNAUTHORIZED => Err(MarketError::InvalidApiKey),
-            StatusCode::FORBIDDEN => Err(MarketError::NotAvailable),
-            status => Err(MarketError::Upstream(format!("HTTP {status} dari {path}"))),
+            StatusCode::UNAUTHORIZED => return Err(MarketError::InvalidApiKey),
+            StatusCode::FORBIDDEN => return Err(MarketError::NotAvailable),
+            StatusCode::TOO_MANY_REQUESTS => return Err(MarketError::RateLimited),
+            status => return Err(MarketError::Upstream(format!("HTTP {status} dari {path}"))),
         }
+
+        res.json()
+            .await
+            .map_err(|e| MarketError::Upstream(format!("JSON tidak valid dari {path}: {e}")))
     }
 }
 
 #[async_trait]
 impl MarketDataSource for FinnhubRest {
     async fn quote(&self, symbol: &str) -> Result<Quote, MarketError> {
-        let quote: Quote = self
-            .get("/quote", &[("symbol", symbol)])
-            .await?
-            .json()
-            .await
-            .map_err(|e| MarketError::Upstream(e.to_string()))?;
+        let quote: Quote = self.get_json("/quote", &[("symbol", symbol)]).await?;
 
         // Finnhub nggak balas 404 untuk ticker ngawur, tapi semua angkanya 0.
         if quote.price == 0.0 && quote.prev_close == 0.0 {
             return Err(MarketError::UnknownSymbol(symbol.to_string()));
         }
         Ok(quote)
+    }
+
+    async fn profile(&self, symbol: &str) -> Result<Profile, MarketError> {
+        let profile: Profile = self
+            .get_json("/stock/profile2", &[("symbol", symbol)])
+            .await?;
+
+        // Ticker ngawur dibalas `{}` (200), jadi nama kosong.
+        if profile.name.is_empty() {
+            return Err(MarketError::UnknownSymbol(symbol.to_string()));
+        }
+        Ok(profile)
+    }
+
+    async fn market_status(&self) -> Result<MarketStatus, MarketError> {
+        self.get_json("/stock/market-status", &[("exchange", "US")])
+            .await
     }
 }

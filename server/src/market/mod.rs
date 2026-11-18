@@ -1,5 +1,9 @@
-//! Kontrak sumber data pasar. Route (dan nanti cache) cuma kenal trait ini, bukan Finnhub,
+//! Kontrak sumber data pasar. Route dan cache cuma kenal trait ini, bukan Finnhub,
 //! jadi sumber data bisa diganti mock di test.
+
+mod cache;
+
+pub use cache::MarketCache;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -24,7 +28,24 @@ pub struct Quote {
     pub timestamp: i64,
 }
 
-#[derive(Debug, thiserror::Error)]
+/// Profil perusahaan. Dashboard baru butuh nama; field lain ditambah kalau dipakai.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Profile {
+    /// Finnhub membalas `{}` untuk ticker yang nggak dikenal, jadi default ke string kosong.
+    #[serde(default)]
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MarketStatus {
+    pub is_open: bool,
+    /// `"pre-market"`, `"regular"`, `"post-market"`, atau `null` saat tutup.
+    pub session: Option<String>,
+}
+
+/// `Clone` dibutuhkan cache: satu error dibagi ke semua request yang nunggu hasil yang sama.
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum MarketError {
     #[error("simbol {0} tidak ditemukan")]
     UnknownSymbol(String),
@@ -46,4 +67,6 @@ pub enum MarketError {
 #[async_trait]
 pub trait MarketDataSource: Send + Sync {
     async fn quote(&self, symbol: &str) -> Result<Quote, MarketError>;
+    async fn profile(&self, symbol: &str) -> Result<Profile, MarketError>;
+    async fn market_status(&self) -> Result<MarketStatus, MarketError>;
 }

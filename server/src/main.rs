@@ -1,9 +1,15 @@
 mod config;
+mod error;
+mod finnhub;
+mod market;
+mod routes;
+mod state;
 
-use axum::{Router, routing::get};
+use std::sync::Arc;
+
 use tracing_subscriber::EnvFilter;
 
-use crate::config::Config;
+use crate::{config::Config, finnhub::FinnhubRest, state::AppState};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -18,15 +24,14 @@ async fn main() -> anyhow::Result<()> {
 
     let config = Config::from_env()?;
 
-    let app = Router::new().route("/health", get(health));
+    let state = AppState {
+        market: Arc::new(FinnhubRest::new(&config.finnhub_api_key)?),
+    };
+    let app = routes::router(state);
 
     let listener = tokio::net::TcpListener::bind(config.bind_addr).await?;
     tracing::info!("listening on http://{}", config.bind_addr);
     axum::serve(listener, app).await?;
 
     Ok(())
-}
-
-async fn health() -> &'static str {
-    "ok"
 }

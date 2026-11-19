@@ -1,5 +1,5 @@
 /* Di-port dari us-stock-dashboard.html. Style untuk fitur yang belum ada
-   (sparkline, flash, form tambah simbol, toast) ditambah di milestone-nya. */
+   (form tambah simbol, toast) ditambah di milestone-nya. */
 
 :root {
   --bg: #0b0e14;
@@ -129,6 +129,56 @@ main {
   color: var(--text);
   font-weight: 500;
   font-variant-numeric: tabular-nums;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 6px;
+  background: var(--muted);
+}
+
+.dot.on {
+  background: var(--up);
+  box-shadow: 0 0 8px var(--up);
+}
+
+.dot.off {
+  background: var(--down);
+}
+
+canvas {
+  width: 100%;
+  height: 56px;
+  display: block;
+  margin: 10px 0 8px;
+}
+
+/* Overlay border yang berkedip saat harga berubah. Elemennya dibuat ulang tiap perubahan
+   (lihat `key` di StockCard), jadi animasinya selalu mulai dari awal. */
+.flash {
+  position: absolute;
+  inset: -1px;
+  border: 1px solid;
+  border-radius: 12px;
+  pointer-events: none;
+  animation: flash 0.4s ease-out forwards;
+}
+
+.flash-up {
+  border-color: var(--up);
+}
+
+.flash-down {
+  border-color: var(--down);
+}
+
+@keyframes flash {
+  to {
+    opacity: 0;
+  }
 }
 
 .foot {

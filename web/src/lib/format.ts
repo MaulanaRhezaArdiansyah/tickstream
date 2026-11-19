@@ -12,3 +12,10 @@ export function fmt(n: number | null | undefined): string {
 export function sign(n: number): string {
   return n >= 0 ? '+' : ''
 }
+
+const compact = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 })
+
+/** 1234567 → "1.2M". */
+export function fmtVol(n: number): string {
+  return compact.format(n)
+}

@@ -6,7 +6,7 @@ use serde::Deserialize;
 use crate::{
     error::AppError,
     extract::AppQuery,
-    market::{MarketStatus, Profile, Quote, SymbolInfo, normalize_symbol},
+    market::{CompanyNews, MarketStatus, Profile, Quote, SymbolInfo, normalize_symbol},
     state::AppState,
     watchlist,
 };
@@ -23,6 +23,15 @@ pub async fn quote(
 ) -> Result<Json<Quote>, AppError> {
     let symbol = watched_symbol(&state, &params.symbol).await?;
     Ok(Json(state.market.quote(&symbol).await?))
+}
+
+/// `GET /api/news?symbol=AMD`: berita 7 hari terakhir dan jumlah berita 24 jam.
+pub async fn news(
+    State(state): State<AppState>,
+    AppQuery(params): AppQuery<SymbolQuery>,
+) -> Result<Json<CompanyNews>, AppError> {
+    let symbol = watched_symbol(&state, &params.symbol).await?;
+    Ok(Json(state.market.company_news(&symbol).await?))
 }
 
 /// `GET /api/profile?symbol=NVDA`

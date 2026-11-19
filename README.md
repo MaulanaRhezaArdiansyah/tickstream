@@ -117,6 +117,7 @@ connections keep closing each other.
 | `DELETE /api/watchlist/{symbol}` | Remove (owner) |
 | `GET /api/admin` | 204 if the bearer token is the owner's |
 | `GET /api/quote?symbol=NVDA` | Latest quote (watched symbols) |
+| `GET /api/news?symbol=AAPL` | Latest company news (7 days, max 20) and the 24 h count (watched symbols) |
 | `GET /api/profile?symbol=NVDA` | Company name and logo URL (watched symbols) |
 | `GET /api/market-status` | US market session |
 | `GET /api/symbols` | All US stocks and ETFs, gzipped |

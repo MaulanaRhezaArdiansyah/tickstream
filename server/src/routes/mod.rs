@@ -25,6 +25,7 @@ pub fn router(state: AppState, web_dir: Option<&Path>) -> Router {
     let api = Router::new()
         .route("/health", get(health))
         .route("/api/quote", get(market::quote))
+        .route("/api/news", get(market::news))
         .route("/api/profile", get(market::profile))
         .route("/api/market-status", get(market::market_status))
         // ±11 ribu baris (±800 KB JSON); gzip memangkasnya jadi sekitar seperlimanya.

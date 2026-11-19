@@ -389,6 +389,32 @@ async fn quotes_are_served_only_for_watched_symbols(db: PgPool) {
     }
 }
 
+#[sqlx::test]
+async fn news_is_served_only_for_watched_symbols(db: PgPool) {
+    let app = app(db);
+    let (status, body) = call_as(&app, None, "GET", "/api/news?symbol=aapl", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body,
+        json!({
+            "count24h": 1,
+            "items": [{
+                "id": 1,
+                "datetime": 1000,
+                "headline": "AAPL news",
+                "source": "Test",
+                "summary": "",
+                "url": "https://example.com",
+            }],
+        })
+    );
+    // AMD dikenal sumber data, tapi nggak ada di watchlist seed.
+    let (status, _) = call_as(&app, None, "GET", "/api/news?symbol=AMD", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = call_as(&app, None, "GET", "/api/news?symbol=", None).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
 // ---- daftar simbol ----
 
 #[sqlx::test]

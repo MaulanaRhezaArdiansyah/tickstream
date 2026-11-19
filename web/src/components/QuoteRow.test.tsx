@@ -25,7 +25,8 @@ vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
 
 it('pengunjung nggak melihat tombol hapus', () => {
   renderRow('AAPL', { quote: QUOTE, name: 'Apple Inc.' })
-  expect(screen.queryByRole('button', { name: 'Hapus AAPL dari watchlist' })).toBeNull()
+  // Baris ini nggak punya tombol lain, jadi tombol apa pun = tombol hapus bocor ke pengunjung.
+  expect(screen.queryByRole('button')).toBeNull()
 })
 
 it('pemilik bisa menghapus simbol', () => {

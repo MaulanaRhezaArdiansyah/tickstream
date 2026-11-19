@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use sqlx::PgPool;
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 use crate::{hub::Hub, market::MarketDataSource};
 
@@ -12,4 +13,8 @@ pub struct AppState {
     pub hub: Arc<Hub>,
     /// `PgPool` sudah berisi `Arc` di dalamnya, jadi murah di-clone.
     pub db: PgPool,
+    /// Di-cancel saat server diminta berhenti (Ctrl+C / SIGTERM).
+    pub shutdown: CancellationToken,
+    /// Task yang harus ditunggu sebelum proses keluar (koneksi `/ws`, stream upstream).
+    pub tasks: TaskTracker,
 }

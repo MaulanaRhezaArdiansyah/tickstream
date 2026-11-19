@@ -13,7 +13,14 @@ use futures_util::{SinkExt, StreamExt};
 use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use tokio::sync::{broadcast, mpsc};
-use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tokio_tungstenite::{
+    connect_async,
+    tungstenite::{
+        Message,
+        protocol::{CloseFrame, frame::coding::CloseCode},
+    },
+};
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 use crate::market::{Trade, TradeBatch, TradeFeed};
 
@@ -30,6 +37,8 @@ const IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 /// dikembalikan ke minimum kalau koneksi sudah bertahan selama ini; tanpa ini, pola
 /// "konek, dapat 1 pesan, di-reset" bikin reconnect tiap detik dan berujung 429.
 const STABLE_AFTER: Duration = Duration::from_secs(30);
+/// Saat shutdown, berapa lama menunggu Finnhub membalas close frame kita.
+const CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 
 enum Command {
     Subscribe(String),
@@ -47,11 +56,18 @@ pub struct FinnhubStream {
 
 impl FinnhubStream {
     /// Jalankan task upstream di background. Trade yang masuk dikirim ke `trades`.
-    pub fn spawn(api_key: &SecretString, trades: broadcast::Sender<TradeBatch>) -> Self {
+    /// Task berhenti (dan menutup koneksi dengan sopan) saat `shutdown` di-cancel;
+    /// `tasks` dipakai `main` untuk menunggunya selesai.
+    pub fn spawn(
+        api_key: &SecretString,
+        trades: broadcast::Sender<TradeBatch>,
+        shutdown: CancellationToken,
+        tasks: &TaskTracker,
+    ) -> Self {
         // Task butuh salinan key miliknya sendiri, karena ia hidup lebih lama dari pemanggil.
         let api_key = SecretString::from(api_key.expose_secret().to_owned());
         let (commands, rx) = mpsc::unbounded_channel();
-        tokio::spawn(run(api_key, rx, trades));
+        tasks.spawn(run(api_key, rx, trades, shutdown));
         Self { commands }
     }
 
@@ -76,6 +92,7 @@ async fn run(
     api_key: SecretString,
     mut commands: mpsc::UnboundedReceiver<Command>,
     trades: broadcast::Sender<TradeBatch>,
+    shutdown: CancellationToken,
 ) {
     // Daftar simbol yang *diinginkan*. Hidup di luar sesi supaya selamat melewati reconnect.
     let mut symbols = BTreeSet::new();
@@ -85,7 +102,11 @@ async fn run(
         // Belum ada yang minta simbol apa pun: jangan buka koneksi dulu. Jatahnya cuma satu
         // koneksi per key, jadi server yang nggak sedang dipakai browser nggak ikut memakainya.
         if symbols.is_empty() {
-            match commands.recv().await {
+            let command = tokio::select! {
+                command = commands.recv() => command,
+                () = shutdown.cancelled() => return,
+            };
+            match command {
                 None => return,
                 Some(Command::Subscribe(symbol)) => {
                     symbols.insert(symbol);
@@ -95,21 +116,33 @@ async fn run(
             continue;
         }
 
-        match session(&api_key, &mut symbols, &mut commands, &trades, &mut backoff).await {
+        match session(
+            &api_key,
+            &mut symbols,
+            &mut commands,
+            &trades,
+            &mut backoff,
+            &shutdown,
+        )
+        .await
+        {
             Ok(()) => {
-                tracing::info!("finnhub stream berhenti: semua pegangan sudah di-drop");
+                tracing::info!("finnhub stream berhenti");
                 return;
             }
             Err(err) => {
                 tracing::warn!(error = %format!("{err:#}"), retry_in = ?backoff, "finnhub stream putus");
-                tokio::time::sleep(backoff).await;
+                tokio::select! {
+                    () = tokio::time::sleep(backoff) => {}
+                    () = shutdown.cancelled() => return,
+                }
                 backoff = (backoff * 2).min(MAX_BACKOFF);
             }
         }
     }
 }
 
-/// Satu sesi koneksi. `Ok(())` berarti server shutdown (channel perintah tertutup);
+/// Satu sesi koneksi. `Ok(())` berarti server shutdown (token di-cancel atau channel tertutup);
 /// `Err` berarti koneksi gagal atau putus dan perlu dibuka ulang.
 async fn session(
     api_key: &SecretString,
@@ -117,6 +150,7 @@ async fn session(
     commands: &mut mpsc::UnboundedReceiver<Command>,
     trades: &broadcast::Sender<TradeBatch>,
     backoff: &mut Duration,
+    shutdown: &CancellationToken,
 ) -> anyhow::Result<()> {
     // Finnhub cuma menerima token lewat query string di WS. URL ini jangan pernah di-log.
     let url = format!("{WS_URL}?token={}", api_key.expose_secret());
@@ -133,6 +167,23 @@ async fn session(
     loop {
         // Tunggu mana yang duluan: perintah dari server, atau pesan dari Finnhub.
         tokio::select! {
+            () = shutdown.cancelled() => {
+                // Pamit dengan close frame. Tanpa ini Finnhub cuma melihat TCP putus dan
+                // (sepertinya) masih menganggap koneksi lama hidup, sehingga koneksi dari
+                // proses yang baru di-restart sempat di-reset.
+                let goodbye = CloseFrame { code: CloseCode::Normal, reason: "server shutdown".into() };
+                sink.send(Message::Close(Some(goodbye))).await?;
+                // Tunggu balasan close dari Finnhub sebentar supaya handshake-nya tuntas.
+                let _ = tokio::time::timeout(CLOSE_TIMEOUT, async {
+                    while let Some(Ok(message)) = stream.next().await {
+                        if message.is_close() {
+                            break;
+                        }
+                    }
+                })
+                .await;
+                return Ok(());
+            }
             command = commands.recv() => match command {
                 None => return Ok(()),
                 Some(Command::Subscribe(symbol)) => {

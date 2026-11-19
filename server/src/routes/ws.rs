@@ -9,12 +9,13 @@ use std::sync::Arc;
 use axum::{
     extract::{
         State, WebSocketUpgrade,
-        ws::{Message, WebSocket},
+        ws::{CloseFrame, Message, WebSocket, close_code},
     },
     response::Response,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast::error::RecvError;
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     hub::{Hub, Subscription},
@@ -43,18 +44,28 @@ enum ServerMessage<'a> {
 }
 
 pub async fn ws(upgrade: WebSocketUpgrade, State(state): State<AppState>) -> Response {
-    upgrade.on_upgrade(move |socket| client(socket, state.hub))
+    // Koneksi WS yang sudah di-upgrade nggak lagi dilacak graceful shutdown-nya axum,
+    // jadi kita lacak sendiri lewat TaskTracker supaya `main` bisa menunggunya.
+    let tasks = state.tasks.clone();
+    upgrade.on_upgrade(move |socket| tasks.track_future(client(socket, state.hub, state.shutdown)))
 }
 
-/// Satu task per browser. Selesai saat browser menutup koneksi atau kirim gagal;
-/// `subscription` di-drop di akhir dan melepas semua simbolnya.
-async fn client(mut socket: WebSocket, hub: Arc<Hub>) {
+/// Satu task per browser. Selesai saat browser menutup koneksi, kirim gagal, atau server
+/// shutdown; `subscription` di-drop di akhir dan melepas semua simbolnya.
+async fn client(mut socket: WebSocket, hub: Arc<Hub>, shutdown: CancellationToken) {
     let mut trades = hub.trades();
     let mut subscription = hub.subscription();
     tracing::debug!("ws client terhubung");
 
     loop {
         tokio::select! {
+            () = shutdown.cancelled() => {
+                // 1001 "going away": browser tahu server pergi dengan sengaja.
+                // useLiveTicks tetap reconnect dengan backoff seperti biasa.
+                let frame = CloseFrame { code: close_code::AWAY, reason: "server restart".into() };
+                let _ = socket.send(Message::Close(Some(frame))).await;
+                break;
+            }
             incoming = socket.recv() => {
                 // `None` = koneksi selesai, `Err` = koneksi rusak. Dua-duanya: berhenti.
                 let Some(Ok(message)) = incoming else { break };

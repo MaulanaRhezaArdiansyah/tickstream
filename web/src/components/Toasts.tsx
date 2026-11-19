@@ -1,4 +1,5 @@
 import type { Toast } from '../hooks/useToasts'
+import { XIcon } from './XIcon'
 
 interface ToastsProps {
   toasts: readonly Toast[]
@@ -13,12 +14,12 @@ export function Toasts({ toasts, onDismiss }: ToastsProps) {
         <div key={toast.id} className="toast">
           <span>{toast.message}</span>
           <button
-            className="x"
+            className="icon-btn"
             type="button"
-            aria-label="Tutup"
+            aria-label="Tutup notifikasi"
             onClick={() => onDismiss(toast.id)}
           >
-            ✕
+            <XIcon size={12} />
           </button>
         </div>
       ))}

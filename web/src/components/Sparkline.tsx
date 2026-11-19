@@ -16,7 +16,7 @@ export function Sparkline({ points, color }: SparklineProps) {
     if (canvas) draw(canvas, points, color)
   }, [points, color])
 
-  return <canvas ref={canvasRef} />
+  return <canvas ref={canvasRef} className="spark" aria-hidden="true" />
 }
 
 function draw(canvas: HTMLCanvasElement, points: readonly number[], color: string) {
@@ -41,20 +41,12 @@ function draw(canvas: HTMLCanvasElement, points: readonly number[], color: strin
     min -= 0.01
   }
   const x = (i: number) => (i / (points.length - 1)) * w
-  const y = (v: number) => h - 3 - ((v - min) / (max - min)) * (h - 6)
+  const y = (v: number) => h - 2 - ((v - min) / (max - min)) * (h - 4)
 
   ctx.beginPath()
   points.forEach((p, i) => (i === 0 ? ctx.moveTo(x(i), y(p)) : ctx.lineTo(x(i), y(p))))
   ctx.strokeStyle = color
-  ctx.lineWidth = 1.6
+  ctx.lineWidth = 1.5
+  ctx.lineJoin = 'round'
   ctx.stroke()
-
-  ctx.lineTo(w, h)
-  ctx.lineTo(0, h)
-  ctx.closePath()
-  const gradient = ctx.createLinearGradient(0, 0, 0, h)
-  gradient.addColorStop(0, color + '55')
-  gradient.addColorStop(1, color + '00')
-  ctx.fillStyle = gradient
-  ctx.fill()
 }

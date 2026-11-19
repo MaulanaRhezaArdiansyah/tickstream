@@ -1,16 +1,24 @@
-/* Di-port dari us-stock-dashboard.html. Style untuk fitur yang belum ada
-   (form tambah simbol, toast) ditambah di milestone-nya. */
+/* Papan kutipan: satu baris per simbol. Desain: canvas "US Stock Live Redesign". */
 
 :root {
-  --bg: #0b0e14;
-  --panel: #131824;
-  --panel2: #1a2030;
-  --line: #252d40;
-  --text: #e6e9ef;
-  --muted: #8a93a6;
-  --up: #22c55e;
-  --down: #ef4444;
-  --accent: #60a5fa;
+  --bg: #141c1a;
+  --surface: #1b2522;
+  --line: #2d3a36;
+  --line-soft: #222e2b;
+  --track: #26322f;
+  --track-on: #4a5d57;
+  --field-line: #3a4a45;
+  --text: #ebe5d8;
+  --text-2: #c9c3b6;
+  --muted: #9ba5a0;
+  --up: #52c48c;
+  --down: #f2705f;
+  --error: #f2a18f;
+  /* Satu aksen: penanda jam sekarang di bar sesi dan focus ring. */
+  --accent: #e8a53a;
+  --sans: 'IBM Plex Sans', system-ui, sans-serif;
+  /* Versi condensed untuk angka harga: lebih banyak digit muat di kolom yang sama. */
+  --figures: 'IBM Plex Sans Condensed', 'IBM Plex Sans', sans-serif;
 }
 
 * {
@@ -21,160 +29,245 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font:
-    14px/1.4 -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
-    Inter,
-    Roboto,
-    sans-serif;
+  font: 14px/1.4 var(--sans);
+  /* Angka selebar sama, supaya kolom harga nggak goyang saat digit berubah. */
+  font-variant-numeric: tabular-nums;
 }
 
-header {
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.label {
+  color: var(--muted);
+}
+
+.page {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding-inline: 32px;
+}
+
+/* ---------- Header ---------- */
+
+.topbar {
+  border-bottom: 1px solid var(--line);
+}
+
+.topbar .page {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 8px 28px;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 20px;
-  border-bottom: 1px solid var(--line);
-  background: var(--panel);
-  position: sticky;
-  top: 0;
-  z-index: 5;
+  padding-block: 18px;
 }
 
-h1 {
-  font-size: 16px;
-  margin: 0;
-  letter-spacing: 0.3px;
+.brand {
+  font-weight: 600;
+  font-size: 17px;
 }
 
-.status {
+.topbar-meta {
   display: flex;
-  gap: 14px;
-  align-items: center;
-  color: var(--muted);
-  font-size: 12px;
   flex-wrap: wrap;
+  gap: 8px 28px;
+  align-items: center;
 }
+
+.conn {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #5b6763;
+}
+
+.dot.live {
+  background: var(--up);
+}
+
+/* Cincin kosong, bukan merah: koneksi putus sementara bukan error, harga terakhir tetap ada. */
+.dot.reconnecting {
+  background: none;
+  border: 2px solid var(--accent);
+}
+
+/* ---------- Watchlist ---------- */
 
 main {
-  padding: 16px 20px;
-  max-width: 1400px;
-  margin: 0 auto;
+  padding-block: 24px 40px;
 }
 
-input,
-button {
-  font: inherit;
-  color: var(--text);
-  background: var(--panel2);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 7px 10px;
+.watchlist-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 14px;
 }
 
-input:focus {
-  outline: 1px solid var(--accent);
+.watchlist-head h1 {
+  font-size: 22px;
+  font-weight: 600;
 }
 
-button {
+.watchlist-head h1 span {
+  margin-left: 8px;
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.add-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.field {
+  width: 150px;
+  height: 44px;
+  padding: 0 12px;
+  background: var(--surface);
+  border: 1px solid var(--field-line);
+  border-radius: 6px;
+  text-transform: uppercase;
+}
+
+.field::placeholder {
+  color: #8e9893;
+  text-transform: none;
+}
+
+.btn {
+  height: 44px;
+  padding: 0 18px;
+  background: transparent;
+  border: 1px solid var(--track-on);
+  border-radius: 6px;
+  font-weight: 600;
   cursor: pointer;
 }
 
-button:hover:not(:disabled) {
-  filter: brightness(1.15);
+.btn.primary {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--bg);
 }
 
-button:disabled {
+.btn:disabled {
   opacity: 0.5;
   cursor: default;
 }
 
-button.primary {
-  background: var(--accent);
-  color: #0b0e14;
-  border-color: var(--accent);
-  font-weight: 600;
-}
-
-.toolbar-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: center;
-  margin-bottom: 14px;
-}
-
-.toolbar {
-  display: flex;
-  gap: 8px;
-}
-
-.symbol-input {
-  text-transform: uppercase;
-  width: 180px;
-}
-
-.muted {
-  color: var(--muted);
-}
-
-.x {
-  background: none;
-  border: none;
-  color: var(--muted);
-  padding: 0 4px;
-  font-size: 16px;
-}
-
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 12px;
-}
-
-.card {
-  background: var(--panel);
+.board {
   border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 14px;
-  position: relative;
-  transition: border-color 0.4s;
+  border-radius: 8px;
 }
 
-.top {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 8px;
+/* Satu definisi kolom untuk baris judul dan baris data, supaya selalu sejajar. */
+.cols {
+  display: grid;
+  grid-template-columns:
+    minmax(150px, 1.3fr) minmax(110px, 1fr) minmax(100px, 0.9fr) minmax(180px, 1.4fr)
+    128px minmax(60px, 0.6fr) 44px;
+  column-gap: 16px;
+  align-items: center;
+  padding: 10px 8px 10px 20px;
 }
 
-.sym {
-  font-weight: 700;
-  font-size: 16px;
+.board-head {
+  padding-block: 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
 }
 
-.name {
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.row + .row {
+  border-top: 1px solid var(--line-soft);
+}
+
+.row:hover {
+  background: var(--surface);
+}
+
+.num {
+  text-align: right;
+}
+
+.min0 {
+  min-width: 0;
+}
+
+.ticker {
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.sub {
   color: var(--muted);
   font-size: 12px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 170px;
 }
 
 .price {
-  font-size: 26px;
-  font-weight: 700;
-  margin: 8px 0 2px;
-  font-variant-numeric: tabular-nums;
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: var(--figures);
+  font-weight: 600;
+  font-size: 24px;
 }
 
-.chg {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
+/* Elemennya dibuat ulang tiap harga berubah (lihat `key` di QuoteRow), jadi animasinya
+   selalu mulai dari awal. */
+.price.flash-up {
+  animation: flash-up 0.6s ease-out;
+}
+
+.price.flash-down {
+  animation: flash-down 0.6s ease-out;
+}
+
+@keyframes flash-up {
+  from {
+    background: rgb(82 196 140 / 0.25);
+  }
+}
+
+@keyframes flash-down {
+  from {
+    background: rgb(242 112 95 / 0.25);
+  }
 }
 
 .up {
@@ -185,71 +278,140 @@ button.primary {
   color: var(--down);
 }
 
-.meta {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 4px;
-  font-size: 11px;
-  color: var(--muted);
-  margin-top: 10px;
+.chg {
+  white-space: nowrap;
 }
 
-.meta b {
+.chg b {
   display: block;
-  color: var(--text);
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
+  font-weight: 600;
 }
 
-.dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  display: inline-block;
-  margin-right: 6px;
-  background: var(--muted);
+.chg small {
+  font-size: 12px;
 }
 
-.dot.on {
-  background: var(--up);
-  box-shadow: 0 0 8px var(--up);
+.range {
+  padding-left: 8px;
 }
 
-.dot.off {
-  background: var(--down);
+.range-track {
+  position: relative;
+  height: 6px;
+  margin: 4px 0 8px;
+  background: var(--track);
+  border-radius: 3px;
 }
 
-canvas {
-  width: 100%;
-  height: 56px;
-  display: block;
-  margin: 10px 0 8px;
-}
-
-/* Overlay border yang berkedip saat harga berubah. Elemennya dibuat ulang tiap perubahan
-   (lihat `key` di StockCard), jadi animasinya selalu mulai dari awal. */
-.flash {
+.range-mark {
   position: absolute;
-  inset: -1px;
-  border: 1px solid;
-  border-radius: 12px;
-  pointer-events: none;
-  animation: flash 0.4s ease-out forwards;
+  top: -3px;
+  width: 3px;
+  height: 12px;
+  margin-left: -1px;
+  border-radius: 2px;
+  background: var(--text);
 }
 
-.flash-up {
-  border-color: var(--up);
+.range-ends {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 12px;
 }
 
-.flash-down {
-  border-color: var(--down);
+.spark {
+  display: block;
+  width: 120px;
+  height: 32px;
 }
 
-@keyframes flash {
-  to {
-    opacity: 0;
+.vol {
+  color: var(--text-2);
+}
+
+.row-error {
+  grid-column: 2 / -2;
+  color: var(--error);
+  text-align: right;
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.icon-btn:hover {
+  color: var(--text);
+}
+
+.row .icon-btn {
+  opacity: 0.6;
+}
+
+.row:hover .icon-btn,
+.row .icon-btn:focus-visible {
+  opacity: 1;
+}
+
+.skel {
+  display: inline-block;
+  width: 64px;
+  height: 14px;
+  border-radius: 4px;
+  background: var(--line);
+  vertical-align: middle;
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+.skel.wide {
+  width: 96px;
+  height: 22px;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.5;
   }
 }
+
+.footnote {
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* Watchlist kosong / gagal dimuat. */
+.notice {
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.notice h2 {
+  margin-bottom: 6px;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.notice p {
+  max-width: 52ch;
+  color: var(--text-2);
+}
+
+.notice .btn {
+  margin-top: 18px;
+}
+
+/* ---------- Toast ---------- */
 
 .toasts {
   position: fixed;
@@ -259,22 +421,25 @@ canvas {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-width: min(360px, calc(100vw - 32px));
+  width: min(380px, calc(100vw - 32px));
 }
 
+/* Semua toast saat ini berisi error, jadi warnanya nada merah yang redup. */
 .toast {
   display: flex;
-  gap: 10px;
-  align-items: flex-start;
+  gap: 12px;
+  align-items: center;
   justify-content: space-between;
-  background: var(--panel2);
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--down);
-  border-radius: 8px;
-  padding: 10px 12px;
-  font-size: 13px;
-  box-shadow: 0 6px 20px rgb(0 0 0 / 0.4);
+  padding: 8px 6px 8px 14px;
+  background: #2a201d;
+  border: 1px solid #5a3a33;
+  border-radius: 6px;
   animation: toast-in 0.15s ease-out;
+}
+
+.toast .icon-btn {
+  flex: none;
+  color: #c9b3ab;
 }
 
 @keyframes toast-in {
@@ -284,10 +449,47 @@ canvas {
   }
 }
 
-.foot {
-  display: flex;
-  justify-content: space-between;
-  font-size: 11px;
-  color: var(--muted);
-  margin-top: 8px;
+/* ---------- Layar sempit ---------- */
+
+@media (max-width: 900px) {
+  .hide-narrow {
+    display: none;
+  }
+
+  .cols {
+    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 0.9fr) 40px;
+  }
+}
+
+@media (max-width: 560px) {
+  .page {
+    padding-inline: 16px;
+  }
+
+  .cols {
+    column-gap: 10px;
+    padding-inline: 12px 4px;
+  }
+
+  .price {
+    padding-inline: 4px;
+    font-size: 18px;
+  }
+
+  .add-form {
+    width: 100%;
+  }
+
+  .field {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .price,
+  .toast,
+  .skel {
+    animation: none !important;
+  }
 }

@@ -1,7 +1,8 @@
 # Production: Postgres + app, ditambah Caddy (HTTPS otomatis) kalau VPS-nya masih kosong.
 #   cp .env.example .env                        # lalu isi
-#   docker compose --profile caddy up -d --build  # VPS kosong: Caddy pegang port 80/443
-#   docker compose up -d --build                  # sudah ada nginx: lihat nginx.conf
+#   docker compose --profile caddy up -d   # VPS kosong: Caddy pegang port 80/443
+#   docker compose up -d                   # sudah ada nginx: lihat nginx.conf
+# Image diambil dari GHCR. Update: docker compose pull && docker compose up -d
 name: tickstream
 
 services:
@@ -21,7 +22,8 @@ services:
     # Tanpa `ports`: database cuma bisa dihubungi dari dalam jaringan compose.
 
   app:
-    image: tickstream:latest
+    # Dibangun GitHub Actions tiap push ke main. `build` cuma dipakai kalau build sendiri.
+    image: ghcr.io/maulanarhezaardiansyah/tickstream:${TAG:-latest}
     build: ..
     restart: unless-stopped
     # Cuma loopback: yang boleh menghubungi app langsung hanya proxy di mesin yang sama.

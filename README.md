@@ -82,7 +82,7 @@ add field is an ARIA combobox that works from the keyboard.
 | --- | --- |
 | Server | Rust 2024, Axum 0.8, Tokio, SQLx (PostgreSQL), reqwest, tokio-tungstenite, moka, governor |
 | Web | React 19, TypeScript, Vite, oxlint |
-| Infrastructure | Docker (multi-stage build), Caddy, GitHub Actions |
+| Infrastructure | Docker (multi-stage build), GitHub Actions, GHCR, nginx or Caddy |
 
 ## Running locally
 
@@ -150,19 +150,22 @@ cd tickstream/deploy
 cp .env.example .env          # DOMAIN, FINNHUB_API_KEY, POSTGRES_PASSWORD, ADMIN_TOKEN, APP_PORT
 ```
 
-**A fresh VPS:** `docker compose --profile caddy up -d --build`. Caddy takes ports 80 and 443,
-gets the HTTPS certificate and proxies the WebSocket.
+**A fresh VPS:** `docker compose --profile caddy up -d`. Caddy takes ports 80 and 443, gets the
+HTTPS certificate and proxies the WebSocket.
 
-**A VPS that already runs nginx** for other sites: `docker compose up -d --build`, then add the
-site from `deploy/nginx.conf` and run `certbot --nginx`. The steps are at the top of that file.
+**A VPS that already runs nginx** for other sites: `docker compose up -d`, then add the site from
+`deploy/nginx.conf` and run `certbot --nginx`. The steps are at the top of that file.
 
-Compiling Rust needs more memory than a small VPS has to spare. To build on your machine instead:
+The VPS does not compile anything. After the checks pass on `main`, GitHub Actions builds the
+image and pushes it to `ghcr.io/maulanarhezaardiansyah/tickstream`, tagged `latest` and
+`sha-<commit>`. To update:
 
 ```sh
-docker build -t tickstream:latest .
-docker save tickstream:latest | gzip | ssh user@vps 'gunzip | docker load'
-ssh user@vps 'cd tickstream/deploy && docker compose up -d'
+docker compose pull && docker compose up -d
 ```
+
+To roll back, set `TAG=sha-<commit>` in `.env` and run the same two commands. Building the image
+yourself still works with `docker compose up -d --build`.
 
 Read logs with `docker compose logs -f app`. PostgreSQL publishes no port and keeps its data in the
 `pgdata` volume.

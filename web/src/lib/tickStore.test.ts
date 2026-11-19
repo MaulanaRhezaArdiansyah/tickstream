@@ -57,22 +57,32 @@ it('banyak batch dalam satu frame cuma memicu satu render', () => {
   expect(listener).toHaveBeenCalledTimes(1)
 })
 
-it('naik, turun, lalu harga sama', () => {
+it('turun, naik, lalu harga sama', () => {
   const store = new TickStore()
   store.apply([trade('AAPL', 10, 1)])
-  store.apply([trade('AAPL', 11, 2)])
-  store.apply([trade('AAPL', 9, 3)])
-  store.apply([trade('AAPL', 9, 4)])
+  store.apply([trade('AAPL', 9, 2)])
+  store.apply([trade('AAPL', 11, 3)])
+  store.apply([trade('AAPL', 11, 4)])
   nextFrame()
 
   const tick = store.getSnapshot().AAPL
-  expect(tick.flash).toBe('down')
-  // Harga sama nggak menaikkan flashSeq, jadi baris nggak berkedip tanpa perubahan.
+  // Harga sama nggak mengubah arah dan nggak menaikkan flashSeq, jadi baris nggak berkedip.
+  expect(tick.flash).toBe('up')
   expect(tick.flashSeq).toBe(2)
   expect(tick.high).toBe(11)
   expect(tick.low).toBe(9)
   expect(tick.volume).toBe(10)
-  expect(tick.points).toEqual([10, 11, 9, 9])
+  expect(tick.points).toEqual([10, 9, 11, 11])
+})
+
+it('flash masih null sampai harganya pertama kali berubah', () => {
+  const store = new TickStore()
+  store.apply([trade('AAPL', 10), trade('AAPL', 10)])
+  nextFrame()
+
+  const tick = store.getSnapshot().AAPL
+  expect(tick.flash).toBeNull()
+  expect(tick.flashSeq).toBe(0)
 })
 
 it('simbol yang nggak berubah tetap objek yang sama', () => {
@@ -83,6 +93,7 @@ it('simbol yang nggak berubah tetap objek yang sama', () => {
 
   store.apply([trade('AAPL', 11)])
   nextFrame()
+  expect(store.getSnapshot().AAPL.price).toBe(11)
   // Referensi sama = baris MSFT yang di-memo nggak dirender ulang.
   expect(store.getSnapshot().MSFT).toBe(msft)
 })

@@ -12,6 +12,7 @@ const LIST: SymbolInfo[] = [
   { symbol: 'BRK.B', name: 'BERKSHIRE HATHAWAY INC CL B', kind: 'stock' },
   { symbol: 'BRKR', name: 'BRUKER CORP', kind: 'stock' },
   { symbol: 'PNPL', name: 'PINEAPPLE INC', kind: 'stock' },
+  { symbol: 'SAPL', name: 'SWEET APPLE CO', kind: 'stock' },
   { symbol: 'SPY', name: 'SPDR S&P 500 ETF', kind: 'etf' },
 ]
 
@@ -27,7 +28,9 @@ it('ticker berawalan query tetap alfabetis', () => {
 })
 
 it('awal kata di nama sebelum nama yang sekadar memuat query', () => {
-  expect(symbols('apple')).toEqual(['AAPL', 'PNPL'])
+  // SAPL urut setelah PNPL di daftar, jadi cuma naik ke depan kalau "SWEET APPLE" dihitung
+  // sebagai awal kata, bukan sekadar memuat "APPLE" seperti PINEAPPLE.
+  expect(symbols('apple')).toEqual(['AAPL', 'SAPL', 'PNPL'])
 })
 
 it('spasi dan huruf kecil diabaikan', () => {
@@ -43,7 +46,7 @@ it('limit memotong hasil tapi total tetap semua yang cocok', () => {
 it('query kosong = awal daftar', () => {
   const result = searchSymbols(LIST, '', 3)
   expect(result.items.map((info) => info.symbol)).toEqual(['AAPL', 'AMD', 'AMDX'])
-  expect(result.total).toBe(8)
+  expect(result.total).toBe(9)
 })
 
 it('nggak ada yang cocok', () => {

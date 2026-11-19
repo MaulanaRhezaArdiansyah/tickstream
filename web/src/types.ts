@@ -31,6 +31,25 @@ export interface MarketStatus {
   session: string | null
 }
 
+/** Satu berita dari `/api/news` (lihat `NewsItem` di server/src/market/news.rs). */
+export interface NewsItem {
+  id: number
+  /** Unix timestamp dalam milidetik. */
+  datetime: number
+  headline: string
+  source: string
+  summary: string
+  /** Selalu http(s); server membuang link lain. */
+  url: string
+}
+
+export interface CompanyNews {
+  /** Jumlah berita 24 jam terakhir (sebelum daftar dipotong ke 20). */
+  count24h: number
+  /** Terbaru di depan, paling banyak 20. */
+  items: NewsItem[]
+}
+
 /** Satu transaksi dari `/ws` (lihat `Trade` di server). */
 export interface Trade {
   symbol: string

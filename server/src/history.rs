@@ -8,14 +8,22 @@
 //! Kelompok cuma dibuat kalau ada trade. Di luar jam bursa isinya jadi "30 menit terakhir
 //! yang ada transaksinya", bukan garis datar.
 
-#![cfg_attr(not(test), allow(dead_code))] // dipakai mulai Task 2 (Recorder)
+#![cfg_attr(not(test), allow(dead_code))] // `points` dipakai mulai Task 3 (/ws)
 
 use std::{
     collections::{HashMap, VecDeque},
-    sync::Mutex,
+    sync::{Arc, Mutex},
 };
 
-use crate::market::Trade;
+use sqlx::PgPool;
+use tokio::sync::broadcast::{self, error::RecvError};
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
+
+use crate::{
+    hub::{Hub, HubError, Subscription},
+    market::{Trade, TradeBatch},
+    watchlist,
+};
 
 /// Lebar satu kelompok, dalam milidetik.
 pub const BUCKET_MS: i64 = 10_000;
@@ -69,9 +77,122 @@ impl History {
     }
 }
 
+/// Pencatat riwayat untuk semua simbol watchlist.
+///
+/// Hub cuma berlangganan ke Finnhub selama ada browser yang menonton. Supaya riwayat tetap
+/// terkumpul saat halaman sepi, server memegang `Subscription` miliknya sendiri, persis
+/// seperti satu "pengunjung" yang nggak pernah pulang. Slot browser nggak berkurang:
+/// batas watchlist sama dengan batas simbol live, dan browser cuma boleh subscribe simbol
+/// watchlist.
+pub struct Recorder {
+    history: History,
+    subscription: Mutex<Subscription>,
+}
+
+impl Recorder {
+    pub fn new(hub: &Arc<Hub>) -> Arc<Self> {
+        Arc::new(Self {
+            history: History::default(),
+            subscription: Mutex::new(hub.subscription()),
+        })
+    }
+
+    pub fn watch(&self, symbol: &str) -> Result<(), HubError> {
+        self.subscription.lock().unwrap().add(symbol)
+    }
+
+    /// Simbol yang dihapus dari watchlist ikut kehilangan riwayatnya: kalau ditambah lagi,
+    /// garisnya mulai dari kosong, bukan menyambung data lama yang sudah bolong.
+    pub fn unwatch(&self, symbol: &str) {
+        self.subscription.lock().unwrap().remove(symbol);
+        self.history.forget(symbol);
+    }
+
+    pub fn points(&self, symbol: &str) -> Vec<Point> {
+        self.history.points(symbol)
+    }
+
+    pub fn record(&self, trades: &[Trade]) {
+        self.history.record(trades);
+    }
+
+    /// Dipanggil sekali saat startup. Gagal pantau satu simbol cuma dicatat: server tetap
+    /// jalan, simbol itu saja yang sparkline-nya kosong.
+    pub async fn watch_watchlist(&self, db: &PgPool) -> sqlx::Result<()> {
+        for symbol in watchlist::list(db).await? {
+            if let Err(err) = self.watch(&symbol) {
+                tracing::warn!(%symbol, error = %err, "recorder: gagal memantau simbol");
+            }
+        }
+        Ok(())
+    }
+
+    /// Task background yang membaca broadcast trade, sama seperti satu koneksi `/ws`.
+    pub fn spawn(
+        self: Arc<Self>,
+        mut trades: broadcast::Receiver<TradeBatch>,
+        shutdown: CancellationToken,
+        tasks: &TaskTracker,
+    ) {
+        tasks.spawn(async move {
+            loop {
+                tokio::select! {
+                    () = shutdown.cancelled() => break,
+                    batch = trades.recv() => match batch {
+                        Ok(batch) => self.record(&batch),
+                        // Ketinggalan beberapa batch cuma bikin beberapa kelompok lebih
+                        // jarang; lanjut dari yang terbaru.
+                        Err(RecvError::Lagged(skipped)) => {
+                            tracing::warn!(skipped, "recorder tertinggal, tick dilewati");
+                        }
+                        Err(RecvError::Closed) => break,
+                    },
+                }
+            }
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::{sync::Arc, time::Duration};
+
+    use tokio::sync::broadcast;
+    use tokio_util::{sync::CancellationToken, task::TaskTracker};
+
     use super::*;
+    use crate::{
+        hub::Hub,
+        market::{TradeBatch, TradeFeed},
+    };
+
+    /// Mock `TradeFeed`: mencatat perintah yang sampai ke "upstream".
+    #[derive(Default)]
+    struct RecordingFeed(Mutex<Vec<String>>);
+
+    impl TradeFeed for RecordingFeed {
+        fn subscribe(&self, symbol: &str) {
+            self.0.lock().unwrap().push(format!("+{symbol}"));
+        }
+        fn unsubscribe(&self, symbol: &str) {
+            self.0.lock().unwrap().push(format!("-{symbol}"));
+        }
+    }
+
+    fn log(feed: &RecordingFeed) -> Vec<String> {
+        feed.0.lock().unwrap().clone()
+    }
+
+    fn recorder() -> (
+        Arc<Recorder>,
+        Arc<RecordingFeed>,
+        broadcast::Sender<TradeBatch>,
+    ) {
+        let feed = Arc::new(RecordingFeed::default());
+        let (trades, _) = broadcast::channel(8);
+        let hub = Arc::new(Hub::new(feed.clone(), trades.clone()));
+        (Recorder::new(&hub), feed, trades)
+    }
 
     fn trade(symbol: &str, timestamp: i64, price: f64) -> Trade {
         Trade {
@@ -144,5 +265,51 @@ mod tests {
         record(&history, &[("AAPL", 0, 1.0)]);
         history.forget("AAPL");
         assert!(history.points("AAPL").is_empty());
+    }
+
+    #[test]
+    fn watching_subscribes_upstream_once_and_unwatch_releases() {
+        let (recorder, feed, _) = recorder();
+        recorder.watch("AAPL").unwrap();
+        recorder.watch("AAPL").unwrap();
+        assert_eq!(log(&feed), ["+AAPL"]);
+
+        recorder.unwatch("AAPL");
+        assert_eq!(log(&feed), ["+AAPL", "-AAPL"]);
+    }
+
+    #[test]
+    fn unwatch_forgets_history() {
+        let (recorder, _, _) = recorder();
+        recorder.watch("AAPL").unwrap();
+        recorder.record(&[trade("AAPL", 0, 1.0)]);
+        recorder.unwatch("AAPL");
+        recorder.watch("AAPL").unwrap();
+        assert!(recorder.points("AAPL").is_empty());
+    }
+
+    #[tokio::test]
+    async fn spawned_recorder_reads_the_broadcast() {
+        let (recorder, _, trades) = recorder();
+        let shutdown = CancellationToken::new();
+        let tasks = TaskTracker::new();
+        Arc::clone(&recorder).spawn(trades.subscribe(), shutdown.clone(), &tasks);
+
+        trades.send(Arc::from(vec![trade("AAPL", 0, 1.0)])).unwrap();
+        let mut points = Vec::new();
+        for _ in 0..100 {
+            points = recorder.points("AAPL");
+            if !points.is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(points, [(0, 1.0)]);
+
+        shutdown.cancel();
+        tasks.close();
+        tokio::time::timeout(Duration::from_secs(1), tasks.wait())
+            .await
+            .expect("recorder berhenti saat shutdown");
     }
 }

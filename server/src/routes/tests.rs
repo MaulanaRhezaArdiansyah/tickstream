@@ -5,7 +5,7 @@
 //! watchlist ikut ada), lalu membuangnya. Butuh Postgres yang jalan dan `DATABASE_URL`.
 //! Finnhub diganti `FakeMarket`: test nggak boleh bergantung pada jaringan atau kuota API.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use axum::{
@@ -21,6 +21,7 @@ use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tower::ServiceExt;
 
 use crate::{
+    history::Recorder,
     hub::Hub,
     market::{
         MarketDataSource, MarketError, MarketStatus, Profile, Quote, SymbolInfo, SymbolKind,
@@ -91,11 +92,36 @@ impl TradeFeed for NoFeed {
     fn unsubscribe(&self, _symbol: &str) {}
 }
 
+/// Feed yang mencatat subscribe/unsubscribe, untuk test yang peduli pada upstream.
+#[derive(Default)]
+struct RecordingFeed(Mutex<Vec<String>>);
+
+impl TradeFeed for RecordingFeed {
+    fn subscribe(&self, symbol: &str) {
+        self.0.lock().unwrap().push(format!("+{symbol}"));
+    }
+    fn unsubscribe(&self, symbol: &str) {
+        self.0.lock().unwrap().push(format!("-{symbol}"));
+    }
+}
+
+impl RecordingFeed {
+    fn log(&self) -> Vec<String> {
+        self.0.lock().unwrap().clone()
+    }
+}
+
 fn state(db: PgPool) -> AppState {
+    state_with_feed(db, Arc::new(NoFeed))
+}
+
+fn state_with_feed(db: PgPool, feed: Arc<dyn TradeFeed>) -> AppState {
     let (trades, _) = broadcast::channel(1);
+    let hub = Arc::new(Hub::new(feed, trades));
     AppState {
         market: Arc::new(FakeMarket),
-        hub: Arc::new(Hub::new(Arc::new(NoFeed), trades)),
+        recorder: Recorder::new(&hub),
+        hub,
         db,
         shutdown: CancellationToken::new(),
         tasks: TaskTracker::new(),
@@ -434,4 +460,45 @@ async fn webhook_rejects_bad_requests_without_storing(db: PgPool) {
 async fn webhook_is_disabled_without_secret(db: PgPool) {
     let status = post_webhook(&app(db), Some(SECRET), "{}").await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[sqlx::test]
+async fn recorder_watches_the_seeded_watchlist(db: PgPool) {
+    let feed = Arc::new(RecordingFeed::default());
+    let state = state_with_feed(db.clone(), feed.clone());
+    state.recorder.watch_watchlist(&db).await.unwrap();
+    assert_eq!(
+        feed.log(),
+        [
+            "+AAPL",
+            "+NVDA",
+            "+MSFT",
+            "+TSLA",
+            "+AMZN",
+            "+GOOGL",
+            "+META",
+            "+SPY",
+            "+BINANCE:BTCUSDT"
+        ]
+    );
+}
+
+#[sqlx::test]
+async fn watchlist_changes_follow_upstream(db: PgPool) {
+    let feed = Arc::new(RecordingFeed::default());
+    let app = super::router(state_with_feed(db, feed.clone()), None);
+
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/api/watchlist",
+        Some(json!({"symbol": "amd"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(feed.log().last().map(String::as_str), Some("+AMD"));
+
+    let (status, _) = call(&app, "DELETE", "/api/watchlist/AMD", None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(feed.log().last().map(String::as_str), Some("-AMD"));
 }

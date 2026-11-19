@@ -51,6 +51,10 @@ pub async fn add(
             "{symbol} sudah ada di watchlist"
         )));
     }
+    // Mulai mencatat riwayat simbol baru ini, walaupun belum ada yang membuka halaman.
+    if let Err(err) = state.recorder.watch(&symbol) {
+        tracing::warn!(%symbol, error = %err, "recorder: gagal memantau simbol");
+    }
     tracing::info!(%symbol, "watchlist: tambah");
     Ok((StatusCode::CREATED, Json(symbol)))
 }
@@ -68,6 +72,7 @@ pub async fn remove(
             "{symbol} nggak ada di watchlist"
         )));
     }
+    state.recorder.unwatch(&symbol);
     tracing::info!(%symbol, "watchlist: hapus");
     Ok(StatusCode::NO_CONTENT)
 }

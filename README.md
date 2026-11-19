@@ -1,5 +1,7 @@
 # Tickstream
 
+[![CI](https://github.com/MaulanaRhezaArdiansyah/tickstream/actions/workflows/ci.yml/badge.svg)](https://github.com/MaulanaRhezaArdiansyah/tickstream/actions/workflows/ci.yml)
+
 Watchlist saham US & kripto real-time. Port dari PoC vanilla JS (`us-stock-dashboard.html`) ke:
 
 - `server/` — Rust + Axum + Tokio. Proxy ke Finnhub; API key cuma ada di server.

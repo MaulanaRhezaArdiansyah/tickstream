@@ -133,7 +133,7 @@ cargo test                    # needs PostgreSQL running: each route test gets i
 cargo clippy --all-targets -- -D warnings
 
 cd ../web
-npm run lint && npm run build
+npm run lint && npm test && npm run build   # Vitest: logic in src/lib and the quote row
 ```
 
 Changed a `sqlx::query!`? Run `cargo sqlx prepare` and commit `server/.sqlx/`, so builds without a

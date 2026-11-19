@@ -69,15 +69,20 @@ impl TradeFeed for NoFeed {
     fn unsubscribe(&self, _symbol: &str) {}
 }
 
-fn app(db: PgPool) -> Router {
+fn state(db: PgPool) -> AppState {
     let (trades, _) = broadcast::channel(1);
-    super::router(AppState {
+    AppState {
         market: Arc::new(FakeMarket),
         hub: Arc::new(Hub::new(Arc::new(NoFeed), trades)),
         db,
         shutdown: CancellationToken::new(),
         tasks: TaskTracker::new(),
-    })
+        webhook_secret: None,
+    }
+}
+
+fn app(db: PgPool) -> Router {
+    super::router(state(db))
 }
 
 /// Kirim satu request, kembalikan status + body JSON (`Null` kalau body kosong).
@@ -194,4 +199,77 @@ async fn unknown_route_is_json_404(db: PgPool) {
     let (status, body) = call(&app(db), "GET", "/api/nggak-ada", None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert!(body["error"].is_string());
+}
+
+// ---- webhook ----
+
+const SECRET: &str = "rahasia-test";
+
+/// Kirim body mentah ke webhook dengan header secret opsional.
+async fn post_webhook(app: &Router, secret: Option<&str>, body: &str) -> StatusCode {
+    let mut request = Request::builder().method("POST").uri("/webhook/finnhub");
+    if let Some(secret) = secret {
+        request = request.header("X-Finnhub-Secret", secret);
+    }
+    let request = request.body(Body::from(body.to_owned())).unwrap();
+    app.clone().oneshot(request).await.unwrap().status()
+}
+
+async fn stored_events(db: &PgPool) -> Vec<Value> {
+    sqlx::query_scalar::<_, String>("SELECT payload::text FROM webhook_events ORDER BY id")
+        .fetch_all(db)
+        .await
+        .unwrap()
+        .iter()
+        .map(|text| serde_json::from_str(text).unwrap())
+        .collect()
+}
+
+#[sqlx::test]
+async fn webhook_stores_valid_event_in_background(db: PgPool) {
+    let mut state = state(db.clone());
+    state.webhook_secret = Some(Arc::new(SECRET.into()));
+    let tasks = state.tasks.clone();
+    let app = super::router(state);
+
+    let event = json!({"event": "earnings", "data": [{"symbol": "AAPL"}]});
+    let status = post_webhook(&app, Some(SECRET), &event.to_string()).await;
+    assert_eq!(status, StatusCode::OK);
+
+    // Penyimpanan jalan di background; tunggu task-nya seperti saat shutdown.
+    tasks.close();
+    tasks.wait().await;
+    assert_eq!(stored_events(&db).await, vec![event]);
+}
+
+#[sqlx::test]
+async fn webhook_rejects_bad_requests_without_storing(db: PgPool) {
+    let mut state = state(db.clone());
+    state.webhook_secret = Some(Arc::new(SECRET.into()));
+    let tasks = state.tasks.clone();
+    let app = super::router(state);
+
+    let cases = [
+        (None, "{}", StatusCode::UNAUTHORIZED), // tanpa header
+        (Some("salah"), "{}", StatusCode::UNAUTHORIZED), // secret beda
+        (Some("rahasia-tes"), "{}", StatusCode::UNAUTHORIZED), // prefiks secret asli
+        (Some(SECRET), "bukan json", StatusCode::BAD_REQUEST), // body rusak
+    ];
+    for (secret, body, expected) in cases {
+        assert_eq!(
+            post_webhook(&app, secret, body).await,
+            expected,
+            "{secret:?} {body}"
+        );
+    }
+
+    tasks.close();
+    tasks.wait().await;
+    assert!(stored_events(&db).await.is_empty());
+}
+
+#[sqlx::test]
+async fn webhook_is_disabled_without_secret(db: PgPool) {
+    let status = post_webhook(&app(db), Some(SECRET), "{}").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
 }

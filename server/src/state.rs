@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use secrecy::SecretString;
 use sqlx::PgPool;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
@@ -17,4 +18,6 @@ pub struct AppState {
     pub shutdown: CancellationToken,
     /// Task yang harus ditunggu sebelum proses keluar (koneksi `/ws`, stream upstream).
     pub tasks: TaskTracker,
+    /// Secret webhook Finnhub; `None` = webhook dimatikan. `Arc` karena state di-clone per request.
+    pub webhook_secret: Option<Arc<SecretString>>,
 }

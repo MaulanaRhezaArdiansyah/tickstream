@@ -26,6 +26,10 @@ Endpoint: `/api/quote?symbol=NVDA`, `/api/profile?symbol=NVDA`, `/api/market-sta
 `GET/POST /api/watchlist` (body `{"symbol":"AMD"}`), `DELETE /api/watchlist/{symbol}`,
 WebSocket `/ws` (kirim `{"type":"subscribe","symbol":"AAPL"}`). Semua error berbentuk `{"error":"..."}`.
 
+Webhook Finnhub: isi `FINNHUB_WEBHOOK_SECRET` di `.env`, lalu daftarkan
+`https://<host-publik>/webhook/finnhub` di dashboard Finnhub. Event disimpan mentah ke tabel
+`webhook_events` (JSONB). Finnhub harus bisa menjangkau server; untuk dev lokal butuh tunnel.
+
 Catatan: Finnhub free cuma mengizinkan satu koneksi WebSocket per API key. Jangan jalankan
 dua server dengan key yang sama; koneksinya bakal saling memutus. Server baru membuka koneksi
 itu begitu ada browser yang subscribe, dan menutupnya dengan sopan saat Ctrl+C.

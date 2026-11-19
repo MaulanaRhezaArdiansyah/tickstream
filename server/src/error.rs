@@ -15,6 +15,8 @@ pub enum AppError {
     BadRequest(String),
     #[error("{0}")]
     NotFound(String),
+    #[error("tidak diizinkan")]
+    Unauthorized,
     /// Permintaan valid tapi bentrok dengan keadaan sekarang (duplikat, kuota penuh).
     #[error("{0}")]
     Conflict(String),
@@ -56,6 +58,7 @@ impl IntoResponse for AppError {
         let status = match &self {
             AppError::BadRequest(_) => StatusCode::BAD_REQUEST,
             AppError::NotFound(_) => StatusCode::NOT_FOUND,
+            AppError::Unauthorized => StatusCode::UNAUTHORIZED,
             AppError::Conflict(_) => StatusCode::CONFLICT,
             AppError::Market(MarketError::UnknownSymbol(_)) => StatusCode::NOT_FOUND,
             AppError::Market(MarketError::NotAvailable) => StatusCode::FORBIDDEN,

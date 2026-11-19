@@ -7,6 +7,7 @@ mod market;
 mod routes;
 mod state;
 mod watchlist;
+mod webhook;
 
 use std::{sync::Arc, time::Duration};
 
@@ -66,12 +67,16 @@ async fn main() -> anyhow::Result<()> {
         &tasks,
     );
 
+    if config.webhook_secret.is_none() {
+        tracing::info!("FINNHUB_WEBHOOK_SECRET kosong: POST /webhook/finnhub dimatikan");
+    }
     let state = AppState {
         market: Arc::new(MarketCache::new(finnhub)),
         hub: Arc::new(Hub::new(Arc::new(stream), trades)),
         db: db.clone(),
         shutdown: shutdown.clone(),
         tasks: tasks.clone(),
+        webhook_secret: config.webhook_secret.map(Arc::new),
     };
     let app = routes::router(state);
 

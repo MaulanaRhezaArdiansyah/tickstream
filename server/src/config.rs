@@ -10,6 +10,8 @@ pub struct Config {
     pub finnhub_api_key: SecretString,
     /// Rahasia juga: URL-nya memuat password database.
     pub database_url: SecretString,
+    /// `None` = webhook dimatikan.
+    pub webhook_secret: Option<SecretString>,
 }
 
 impl Config {
@@ -29,10 +31,16 @@ impl Config {
             .context("DATABASE_URL wajib diisi di server/.env")?
             .into();
 
+        let webhook_secret = std::env::var("FINNHUB_WEBHOOK_SECRET")
+            .ok()
+            .filter(|secret| !secret.trim().is_empty())
+            .map(SecretString::from);
+
         Ok(Self {
             bind_addr,
             finnhub_api_key,
             database_url,
+            webhook_secret,
         })
     }
 }

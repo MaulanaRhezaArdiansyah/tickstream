@@ -1,5 +1,6 @@
 mod config;
 mod error;
+mod extract;
 mod finnhub;
 mod hub;
 mod market;

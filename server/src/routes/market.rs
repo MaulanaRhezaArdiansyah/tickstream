@@ -1,11 +1,9 @@
-use axum::{
-    Json,
-    extract::{Query, State},
-};
+use axum::{Json, extract::State};
 use serde::Deserialize;
 
 use crate::{
     error::AppError,
+    extract::AppQuery,
     market::{MarketStatus, Profile, Quote, normalize_symbol},
     state::AppState,
 };
@@ -18,7 +16,7 @@ pub struct SymbolQuery {
 /// `GET /api/quote?symbol=NVDA`
 pub async fn quote(
     State(state): State<AppState>,
-    Query(params): Query<SymbolQuery>,
+    AppQuery(params): AppQuery<SymbolQuery>,
 ) -> Result<Json<Quote>, AppError> {
     let symbol = parse_symbol(&params.symbol)?;
     Ok(Json(state.market.quote(&symbol).await?))
@@ -27,7 +25,7 @@ pub async fn quote(
 /// `GET /api/profile?symbol=NVDA`
 pub async fn profile(
     State(state): State<AppState>,
-    Query(params): Query<SymbolQuery>,
+    AppQuery(params): AppQuery<SymbolQuery>,
 ) -> Result<Json<Profile>, AppError> {
     let symbol = parse_symbol(&params.symbol)?;
     Ok(Json(state.market.profile(&symbol).await?))

@@ -1,12 +1,9 @@
-use axum::{
-    Json,
-    extract::{Path, State},
-    http::StatusCode,
-};
+use axum::{Json, extract::State, http::StatusCode};
 use serde::Deserialize;
 
 use crate::{
     error::AppError,
+    extract::{AppJson, AppPath},
     market::normalize_symbol,
     state::AppState,
     watchlist::{self, MAX_ENTRIES},
@@ -25,7 +22,7 @@ pub struct AddBody {
 /// `POST /api/watchlist` `{"symbol":"nvda"}` → `201 "NVDA"`.
 pub async fn add(
     State(state): State<AppState>,
-    Json(body): Json<AddBody>,
+    AppJson(body): AppJson<AddBody>,
 ) -> Result<(StatusCode, Json<String>), AppError> {
     let symbol = normalize_symbol(&body.symbol)
         .ok_or_else(|| AppError::BadRequest(format!("simbol tidak valid: {:?}", body.symbol)))?;
@@ -59,7 +56,7 @@ pub async fn add(
 /// `DELETE /api/watchlist/NVDA` → `204`.
 pub async fn remove(
     State(state): State<AppState>,
-    Path(raw): Path<String>,
+    AppPath(raw): AppPath<String>,
 ) -> Result<StatusCode, AppError> {
     let symbol = normalize_symbol(&raw)
         .ok_or_else(|| AppError::BadRequest(format!("simbol tidak valid: {raw:?}")))?;

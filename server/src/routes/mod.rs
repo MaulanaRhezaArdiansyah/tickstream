@@ -7,7 +7,7 @@ use axum::{
     routing::{delete, get},
 };
 
-use crate::state::AppState;
+use crate::{error::AppError, state::AppState};
 
 pub fn router(state: AppState) -> Router {
     Router::new()
@@ -18,9 +18,15 @@ pub fn router(state: AppState) -> Router {
         .route("/api/watchlist", get(watchlist::list).post(watchlist::add))
         .route("/api/watchlist/{symbol}", delete(watchlist::remove))
         .route("/ws", get(ws::ws))
+        // Route yang nggak ada juga dibalas JSON, bukan body kosong.
+        .fallback(not_found)
         .with_state(state)
 }
 
 async fn health() -> &'static str {
     "ok"
+}
+
+async fn not_found() -> AppError {
+    AppError::NotFound("endpoint tidak ada".into())
 }

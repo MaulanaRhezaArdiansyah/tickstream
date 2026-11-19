@@ -1,5 +1,6 @@
 use axum::{
     Json,
+    extract::rejection::{JsonRejection, PathRejection, QueryRejection},
     http::StatusCode,
     response::{IntoResponse, Response},
 };
@@ -22,6 +23,27 @@ pub enum AppError {
     Market(#[from] MarketError),
     #[error("database: {0}")]
     Database(#[from] sqlx::Error),
+}
+
+/// Input yang ditolak extractor (lihat extract.rs) jadi 400 dengan pesan dari axum.
+/// Tiga impl kecil, bukan satu impl generik: impl generik untuk "semua rejection" bakal
+/// bentrok dengan `From<sqlx::Error>` menurut aturan coherence Rust.
+impl From<JsonRejection> for AppError {
+    fn from(rejection: JsonRejection) -> Self {
+        AppError::BadRequest(rejection.body_text())
+    }
+}
+
+impl From<QueryRejection> for AppError {
+    fn from(rejection: QueryRejection) -> Self {
+        AppError::BadRequest(rejection.body_text())
+    }
+}
+
+impl From<PathRejection> for AppError {
+    fn from(rejection: PathRejection) -> Self {
+        AppError::BadRequest(rejection.body_text())
+    }
 }
 
 #[derive(Serialize)]

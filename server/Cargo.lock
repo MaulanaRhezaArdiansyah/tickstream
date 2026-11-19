@@ -96,6 +96,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "31b698c5f9a010f6573133b09e0de5408834d0c82f8d7475a89fc1867a71cd90"
 dependencies = [
  "axum-core",
+ "axum-macros",
  "base64 0.22.1",
  "bytes",
  "form_urlencoded",
@@ -142,6 +143,17 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
+]
+
+[[package]]
+name = "axum-macros"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7aa268c23bfbbd2c4363b9cd302a4f504fb2a9dfe7e3451d66f35dd392e20aca"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -1872,6 +1884,7 @@ dependencies = [
  "dotenvy",
  "futures-util",
  "governor",
+ "http-body-util",
  "moka",
  "reqwest",
  "secrecy",
@@ -1881,6 +1894,8 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-tungstenite 0.30.0",
+ "tokio-util",
+ "tower",
  "tracing",
  "tracing-subscriber",
 ]
@@ -2394,6 +2409,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "futures-util",
  "libc",
  "pin-project-lite",
  "tokio",

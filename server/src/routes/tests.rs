@@ -29,6 +29,9 @@ use crate::{
     state::AppState,
 };
 
+/// Token pemilik di semua test, kecuali yang sengaja menguji tanpa token.
+const ADMIN: &str = "token-admin-untuk-test-minimal-32-karakter";
+
 /// Ticker yang "dikenal" sumber data palsu. Sisanya dianggap nggak ada.
 const KNOWN: &[&str] = &["AAPL", "NVDA", "AMD"];
 
@@ -96,6 +99,7 @@ fn state(db: PgPool) -> AppState {
         shutdown: CancellationToken::new(),
         tasks: TaskTracker::new(),
         webhook_secret: None,
+        admin_token: Some(Arc::new(ADMIN.into())),
     }
 }
 
@@ -103,9 +107,23 @@ fn app(db: PgPool) -> Router {
     super::router(state(db))
 }
 
-/// Kirim satu request, kembalikan status + body JSON (`Null` kalau body kosong).
+/// Kirim satu request sebagai pemilik, kembalikan status + body JSON (`Null` kalau kosong).
 async fn call(app: &Router, method: &str, uri: &str, body: Option<Value>) -> (StatusCode, Value) {
-    let request = Request::builder().method(method).uri(uri);
+    call_as(app, Some(ADMIN), method, uri, body).await
+}
+
+/// Seperti `call`, tapi token-nya bisa diganti atau dihilangkan (`None` = pengunjung).
+async fn call_as(
+    app: &Router,
+    token: Option<&str>,
+    method: &str,
+    uri: &str,
+    body: Option<Value>,
+) -> (StatusCode, Value) {
+    let mut request = Request::builder().method(method).uri(uri);
+    if let Some(token) = token {
+        request = request.header(header::AUTHORIZATION, format!("Bearer {token}"));
+    }
     let request = match body {
         Some(body) => request
             .header(header::CONTENT_TYPE, "application/json")
@@ -217,6 +235,62 @@ async fn unknown_route_is_json_404(db: PgPool) {
     let (status, body) = call(&app(db), "GET", "/api/nggak-ada", None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert!(body["error"].is_string());
+}
+
+// ---- pemilik vs pengunjung ----
+
+#[sqlx::test]
+async fn visitors_can_read_but_not_change_the_watchlist(db: PgPool) {
+    let app = app(db);
+    let (status, _) = call_as(&app, None, "GET", "/api/watchlist", None).await;
+    assert_eq!(status, StatusCode::OK);
+
+    for token in [None, Some("salah"), Some(&ADMIN[1..])] {
+        let add = Some(json!({"symbol": "amd"}));
+        let (status, body) = call_as(&app, token, "POST", "/api/watchlist", add).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "tambah dengan {token:?}");
+        assert!(body["error"].is_string());
+
+        let (status, _) = call_as(&app, token, "DELETE", "/api/watchlist/nvda", None).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "hapus dengan {token:?}");
+    }
+    assert_eq!(list(&app).await.len(), 9, "watchlist harus utuh");
+}
+
+#[sqlx::test]
+async fn nobody_can_write_without_configured_token(db: PgPool) {
+    let mut state = state(db);
+    state.admin_token = None;
+    let app = super::router(state);
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/api/watchlist",
+        Some(json!({"symbol": "amd"})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+#[sqlx::test]
+async fn admin_check_accepts_only_the_right_token(db: PgPool) {
+    let app = app(db);
+    let (status, _) = call(&app, "GET", "/api/admin", None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (status, _) = call_as(&app, Some("salah"), "GET", "/api/admin", None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+#[sqlx::test]
+async fn quotes_are_served_only_for_watched_symbols(db: PgPool) {
+    let app = app(db);
+    let (status, _) = call_as(&app, None, "GET", "/api/quote?symbol=aapl", None).await;
+    assert_eq!(status, StatusCode::OK);
+    // AMD dikenal sumber data, tapi nggak ada di watchlist seed.
+    for uri in ["/api/quote?symbol=AMD", "/api/profile?symbol=AMD"] {
+        let (status, _) = call_as(&app, None, "GET", uri, None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{uri}");
+    }
 }
 
 // ---- daftar simbol ----

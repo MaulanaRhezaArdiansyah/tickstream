@@ -14,6 +14,7 @@ use axum::{
     response::Response,
 };
 use serde::{Deserialize, Serialize};
+use sqlx::PgPool;
 use tokio::sync::broadcast::error::RecvError;
 use tokio_util::sync::CancellationToken;
 
@@ -21,6 +22,7 @@ use crate::{
     hub::{Hub, Subscription},
     market::{Trade, normalize_symbol},
     state::AppState,
+    watchlist,
 };
 
 #[derive(Deserialize)]
@@ -47,12 +49,14 @@ pub async fn ws(upgrade: WebSocketUpgrade, State(state): State<AppState>) -> Res
     // Koneksi WS yang sudah di-upgrade nggak lagi dilacak graceful shutdown-nya axum,
     // jadi kita lacak sendiri lewat TaskTracker supaya `main` bisa menunggunya.
     let tasks = state.tasks.clone();
-    upgrade.on_upgrade(move |socket| tasks.track_future(client(socket, state.hub, state.shutdown)))
+    upgrade.on_upgrade(move |socket| {
+        tasks.track_future(client(socket, state.hub, state.db, state.shutdown))
+    })
 }
 
 /// Satu task per browser. Selesai saat browser menutup koneksi, kirim gagal, atau server
 /// shutdown; `subscription` di-drop di akhir dan melepas semua simbolnya.
-async fn client(mut socket: WebSocket, hub: Arc<Hub>, shutdown: CancellationToken) {
+async fn client(mut socket: WebSocket, hub: Arc<Hub>, db: PgPool, shutdown: CancellationToken) {
     let mut trades = hub.trades();
     let mut subscription = hub.subscription();
     tracing::debug!("ws client terhubung");
@@ -71,7 +75,7 @@ async fn client(mut socket: WebSocket, hub: Arc<Hub>, shutdown: CancellationToke
                 let Some(Ok(message)) = incoming else { break };
                 // Close/Ping/Pong/Binary diabaikan; Ping dijawab otomatis oleh axum.
                 let Message::Text(text) = message else { continue };
-                if let Err(reply) = handle_command(text.as_str(), &mut subscription)
+                if let Err(reply) = handle_command(text.as_str(), &mut subscription, &db).await
                     && send(&mut socket, &reply).await.is_err()
                 {
                     break;
@@ -100,9 +104,14 @@ async fn client(mut socket: WebSocket, hub: Arc<Hub>, shutdown: CancellationToke
 }
 
 /// `Err` berisi pesan error yang perlu dikirim balik ke client.
-fn handle_command(
+///
+/// Subscribe cuma untuk simbol di watchlist: batas 50 simbol live berlaku untuk seluruh
+/// server, jadi kalau siapa pun boleh subscribe simbol apa saja, satu pengunjung bisa
+/// menghabiskan semua slot.
+async fn handle_command(
     text: &str,
     subscription: &mut Subscription,
+    db: &PgPool,
 ) -> Result<(), ServerMessage<'static>> {
     let error = |symbol: Option<String>, message: String| ServerMessage::Error { symbol, message };
 
@@ -113,6 +122,19 @@ fn handle_command(
         ClientMessage::Subscribe { symbol } => {
             let normalized = normalize_symbol(&symbol)
                 .ok_or_else(|| error(Some(symbol.clone()), "simbol tidak valid".to_string()))?;
+            match watchlist::contains(db, &normalized).await {
+                Ok(true) => {}
+                Ok(false) => {
+                    return Err(error(
+                        Some(normalized),
+                        "nggak ada di watchlist".to_string(),
+                    ));
+                }
+                Err(err) => {
+                    tracing::warn!(error = %err, "ws: gagal cek watchlist");
+                    return Err(error(Some(normalized), "kesalahan server".to_string()));
+                }
+            }
             subscription
                 .add(&normalized)
                 .map_err(|err| error(Some(normalized), err.to_string()))

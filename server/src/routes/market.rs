@@ -8,6 +8,7 @@ use crate::{
     extract::AppQuery,
     market::{MarketStatus, Profile, Quote, SymbolInfo, normalize_symbol},
     state::AppState,
+    watchlist,
 };
 
 #[derive(Deserialize)]
@@ -20,7 +21,7 @@ pub async fn quote(
     State(state): State<AppState>,
     AppQuery(params): AppQuery<SymbolQuery>,
 ) -> Result<Json<Quote>, AppError> {
-    let symbol = parse_symbol(&params.symbol)?;
+    let symbol = watched_symbol(&state, &params.symbol).await?;
     Ok(Json(state.market.quote(&symbol).await?))
 }
 
@@ -29,7 +30,7 @@ pub async fn profile(
     State(state): State<AppState>,
     AppQuery(params): AppQuery<SymbolQuery>,
 ) -> Result<Json<Profile>, AppError> {
-    let symbol = parse_symbol(&params.symbol)?;
+    let symbol = watched_symbol(&state, &params.symbol).await?;
     Ok(Json(state.market.profile(&symbol).await?))
 }
 
@@ -48,7 +49,16 @@ pub async fn symbols(State(state): State<AppState>) -> Result<impl IntoResponse,
     ))
 }
 
-fn parse_symbol(raw: &str) -> Result<String, AppError> {
-    normalize_symbol(raw)
-        .ok_or_else(|| AppError::BadRequest(format!("simbol tidak valid: {raw:?}")))
+/// Quote dan profil cuma dilayani untuk simbol di watchlist. Pengunjung bebas membuka
+/// halaman, tapi nggak bisa memakai server ini untuk menghabiskan kuota Finnhub dengan
+/// simbol sembarang. Browser memang cuma meminta simbol watchlist.
+async fn watched_symbol(state: &AppState, raw: &str) -> Result<String, AppError> {
+    let symbol = normalize_symbol(raw)
+        .ok_or_else(|| AppError::BadRequest(format!("simbol tidak valid: {raw:?}")))?;
+    if !watchlist::contains(&state.db, &symbol).await? {
+        return Err(AppError::NotFound(format!(
+            "{symbol} nggak ada di watchlist"
+        )));
+    }
+    Ok(symbol)
 }

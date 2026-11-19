@@ -12,7 +12,12 @@ pub struct Config {
     pub database_url: SecretString,
     /// `None` = webhook dimatikan.
     pub webhook_secret: Option<SecretString>,
+    /// `None` = nggak ada pemilik, watchlist cuma bisa dibaca.
+    pub admin_token: Option<SecretString>,
 }
+
+/// Token pendek bisa ditebak; `openssl rand -hex 32` menghasilkan 64 karakter.
+const MIN_ADMIN_TOKEN_LEN: usize = 32;
 
 impl Config {
     pub fn from_env() -> anyhow::Result<Self> {
@@ -36,11 +41,21 @@ impl Config {
             .filter(|secret| !secret.trim().is_empty())
             .map(SecretString::from);
 
+        let admin_token = match std::env::var("ADMIN_TOKEN") {
+            Ok(token) if token.trim().is_empty() => None,
+            Ok(token) if token.len() < MIN_ADMIN_TOKEN_LEN => anyhow::bail!(
+                "ADMIN_TOKEN minimal {MIN_ADMIN_TOKEN_LEN} karakter (buat dengan `openssl rand -hex 32`)"
+            ),
+            Ok(token) => Some(SecretString::from(token)),
+            Err(_) => None,
+        };
+
         Ok(Self {
             bind_addr,
             finnhub_api_key,
             database_url,
             webhook_secret,
+            admin_token,
         })
     }
 }

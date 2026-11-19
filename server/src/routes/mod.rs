@@ -26,6 +26,7 @@ pub fn router(state: AppState) -> Router {
             "/api/symbols",
             get(market::symbols).layer(CompressionLayer::new()),
         )
+        .route("/api/admin", get(crate::auth::check))
         .route("/api/watchlist", get(watchlist::list).post(watchlist::add))
         .route("/api/watchlist/{symbol}", delete(watchlist::remove))
         .route("/ws", get(ws::ws))

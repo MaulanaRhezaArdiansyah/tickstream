@@ -1,3 +1,4 @@
+mod auth;
 mod config;
 mod error;
 mod extract;
@@ -67,6 +68,9 @@ async fn main() -> anyhow::Result<()> {
         &tasks,
     );
 
+    if config.admin_token.is_none() {
+        tracing::info!("ADMIN_TOKEN kosong: watchlist cuma bisa dibaca");
+    }
     if config.webhook_secret.is_none() {
         tracing::info!("FINNHUB_WEBHOOK_SECRET kosong: POST /webhook/finnhub dimatikan");
     }
@@ -77,6 +81,7 @@ async fn main() -> anyhow::Result<()> {
         shutdown: shutdown.clone(),
         tasks: tasks.clone(),
         webhook_secret: config.webhook_secret.map(Arc::new),
+        admin_token: config.admin_token.map(Arc::new),
     };
     let app = routes::router(state);
 

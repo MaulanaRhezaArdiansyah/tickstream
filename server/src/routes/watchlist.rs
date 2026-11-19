@@ -2,6 +2,7 @@ use axum::{Json, extract::State, http::StatusCode};
 use serde::Deserialize;
 
 use crate::{
+    auth::Admin,
     error::AppError,
     extract::{AppJson, AppPath},
     market::normalize_symbol,
@@ -21,6 +22,7 @@ pub struct AddBody {
 
 /// `POST /api/watchlist` `{"symbol":"nvda"}` → `201 "NVDA"`.
 pub async fn add(
+    _: Admin,
     State(state): State<AppState>,
     AppJson(body): AppJson<AddBody>,
 ) -> Result<(StatusCode, Json<String>), AppError> {
@@ -55,6 +57,7 @@ pub async fn add(
 
 /// `DELETE /api/watchlist/NVDA` → `204`.
 pub async fn remove(
+    _: Admin,
     State(state): State<AppState>,
     AppPath(raw): AppPath<String>,
 ) -> Result<StatusCode, AppError> {

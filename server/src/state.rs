@@ -20,4 +20,6 @@ pub struct AppState {
     pub tasks: TaskTracker,
     /// Secret webhook Finnhub; `None` = webhook dimatikan. `Arc` karena state di-clone per request.
     pub webhook_secret: Option<Arc<SecretString>>,
+    /// Token pemilik untuk mengubah watchlist; `None` = read-only.
+    pub admin_token: Option<Arc<SecretString>>,
 }

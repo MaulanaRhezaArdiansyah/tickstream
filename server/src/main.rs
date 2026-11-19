@@ -83,7 +83,10 @@ async fn main() -> anyhow::Result<()> {
         webhook_secret: config.webhook_secret.map(Arc::new),
         admin_token: config.admin_token.map(Arc::new),
     };
-    let app = routes::router(state);
+    if let Some(dir) = &config.web_dir {
+        tracing::info!(dir = %dir.display(), "menyajikan halaman web");
+    }
+    let app = routes::router(state, config.web_dir.as_deref());
 
     let listener = tokio::net::TcpListener::bind(config.bind_addr).await?;
     tracing::info!("listening on http://{}", config.bind_addr);

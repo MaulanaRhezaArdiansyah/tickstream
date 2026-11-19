@@ -104,7 +104,7 @@ fn state(db: PgPool) -> AppState {
 }
 
 fn app(db: PgPool) -> Router {
-    super::router(state(db))
+    super::router(state(db), None)
 }
 
 /// Kirim satu request sebagai pemilik, kembalikan status + body JSON (`Null` kalau kosong).
@@ -237,6 +237,47 @@ async fn unknown_route_is_json_404(db: PgPool) {
     assert!(body["error"].is_string());
 }
 
+// ---- halaman web (production) ----
+
+#[sqlx::test]
+async fn serves_the_web_build_next_to_the_api(db: PgPool) {
+    let dir = std::env::temp_dir().join(format!("tickstream-web-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("assets")).unwrap();
+    std::fs::write(dir.join("index.html"), "<p>halaman</p>").unwrap();
+    std::fs::write(dir.join("assets/app.js"), "console.log(1)").unwrap();
+    let app = super::router(state(db), Some(&dir));
+
+    let get = |uri: &'static str| {
+        let app = app.clone();
+        async move {
+            let request = Request::builder().uri(uri).body(Body::empty()).unwrap();
+            let response = app.oneshot(request).await.unwrap();
+            let status = response.status();
+            let bytes = response.into_body().collect().await.unwrap().to_bytes();
+            (status, String::from_utf8(bytes.to_vec()).unwrap())
+        }
+    };
+
+    assert_eq!(get("/").await, (StatusCode::OK, "<p>halaman</p>".into()));
+    assert_eq!(
+        get("/assets/app.js").await,
+        (StatusCode::OK, "console.log(1)".into())
+    );
+    assert_eq!(
+        get("/sembarang").await.1,
+        "<p>halaman</p>",
+        "path lain dapat index.html"
+    );
+
+    let (status, body) = get("/api/nggak-ada").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(body.contains("\"error\""), "API tetap JSON: {body}");
+    let (status, _) = get("/api/watchlist").await;
+    assert_eq!(status, StatusCode::OK);
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 // ---- pemilik vs pengunjung ----
 
 #[sqlx::test]
@@ -261,7 +302,7 @@ async fn visitors_can_read_but_not_change_the_watchlist(db: PgPool) {
 async fn nobody_can_write_without_configured_token(db: PgPool) {
     let mut state = state(db);
     state.admin_token = None;
-    let app = super::router(state);
+    let app = super::router(state, None);
     let (status, _) = call(
         &app,
         "POST",
@@ -350,7 +391,7 @@ async fn webhook_stores_valid_event_in_background(db: PgPool) {
     let mut state = state(db.clone());
     state.webhook_secret = Some(Arc::new(SECRET.into()));
     let tasks = state.tasks.clone();
-    let app = super::router(state);
+    let app = super::router(state, None);
 
     let event = json!({"event": "earnings", "data": [{"symbol": "AAPL"}]});
     let status = post_webhook(&app, Some(SECRET), &event.to_string()).await;
@@ -367,7 +408,7 @@ async fn webhook_rejects_bad_requests_without_storing(db: PgPool) {
     let mut state = state(db.clone());
     state.webhook_secret = Some(Arc::new(SECRET.into()));
     let tasks = state.tasks.clone();
-    let app = super::router(state);
+    let app = super::router(state, None);
 
     let cases = [
         (None, "{}", StatusCode::UNAUTHORIZED), // tanpa header

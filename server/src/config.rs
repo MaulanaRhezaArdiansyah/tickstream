@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::{net::SocketAddr, path::PathBuf};
 
 use anyhow::Context;
 use secrecy::SecretString;
@@ -14,6 +14,8 @@ pub struct Config {
     pub webhook_secret: Option<SecretString>,
     /// `None` = nggak ada pemilik, watchlist cuma bisa dibaca.
     pub admin_token: Option<SecretString>,
+    /// Folder hasil `npm run build`. `None` saat dev: halaman disajikan Vite.
+    pub web_dir: Option<PathBuf>,
 }
 
 /// Token pendek bisa ditebak; `openssl rand -hex 32` menghasilkan 64 karakter.
@@ -50,12 +52,26 @@ impl Config {
             Err(_) => None,
         };
 
+        let web_dir = match std::env::var("WEB_DIR") {
+            Ok(dir) if !dir.trim().is_empty() => {
+                let dir = PathBuf::from(dir);
+                anyhow::ensure!(
+                    dir.join("index.html").is_file(),
+                    "WEB_DIR={} nggak berisi index.html (sudah `npm run build`?)",
+                    dir.display()
+                );
+                Some(dir)
+            }
+            _ => None,
+        };
+
         Ok(Self {
             bind_addr,
             finnhub_api_key,
             database_url,
             webhook_secret,
             admin_token,
+            web_dir,
         })
     }
 }

@@ -3,7 +3,7 @@ import type { Trade } from '../types'
 /** Lebar satu kelompok sparkline (sama dengan `BUCKET_MS` di server/src/history.rs). */
 export const BUCKET_MS = 10_000
 /** 180 × 10 detik = 30 menit, sama dengan riwayat yang disimpan server. */
-const MAX_POINTS = 180
+export const MAX_POINTS = 180
 
 /** Data live satu simbol, dalam bentuk yang dibaca React. Objeknya nggak pernah diubah;
  *  tiap perubahan menghasilkan objek baru, jadi React cukup membandingkan referensi. */
@@ -27,9 +27,9 @@ export type LiveTicks = Readonly<Record<string, LiveTick>>
 /** Titik sparkline per simbol: harga terakhir tiap kelompok 10 detik, urut dari yang lama. */
 export type Sparks = Readonly<Record<string, readonly number[]>>
 
-/** Sparkline yang sedang dibangun: `newest` = awal kelompok terakhir (Unix ms). */
+/** Sparkline yang sedang dibangun: `times[i]` = awal kelompok (Unix ms) untuk `prices[i]`. */
 interface SparkDraft {
-  newest: number
+  times: number[]
   prices: number[]
 }
 
@@ -88,16 +88,27 @@ export class TickStore {
   }
 
   /**
-   * Isi sparkline dari riwayat server (`[awalKelompok, harga][]`). Menggantikan isi yang
-   * lama: setelah reconnect, riwayat server sudah memuat trade yang tadi diterima, jadi
-   * menambahkannya akan menggandakan ekor garis.
+   * Isi sparkline dari riwayat server (`[awalKelompok, harga][]`).
+   *
+   * Riwayat server jadi dasarnya; titik lokal yang LEBIH BARU dari riwayat itu disambung di
+   * belakang. Setelah reconnect biasa, riwayat server sudah memuat semuanya, jadi ekornya
+   * nggak dobel. Setelah server restart (deploy), riwayatnya kosong, jadi garis yang sudah
+   * ada di tab ini tetap utuh.
    */
   seed(symbol: string, points: readonly (readonly [number, number])[]) {
-    const kept = points.slice(-MAX_POINTS)
+    const times = points.map(([time]) => time)
+    const prices = points.map(([, price]) => price)
+    const local = this.sparks.get(symbol)
+    const newest = times.at(-1) ?? -Infinity
+    local?.times.forEach((time, i) => {
+      if (time > newest) {
+        times.push(time)
+        prices.push(local.prices[i])
+      }
+    })
     this.sparks.set(symbol, {
-      // Riwayat kosong: trade pertama mana pun dianggap kelompok baru.
-      newest: kept.at(-1)?.[0] ?? -Infinity,
-      prices: kept.map(([, price]) => price),
+      times: times.slice(-MAX_POINTS),
+      prices: prices.slice(-MAX_POINTS),
     })
     this.sparksDirty.add(symbol)
     this.schedule()
@@ -107,14 +118,19 @@ export class TickStore {
   private addPoint(symbol: string, timestamp: number, price: number) {
     const start = Math.floor(timestamp / BUCKET_MS) * BUCKET_MS
     const spark = this.sparks.get(symbol)
+    // Riwayat kosong: trade pertama mana pun dianggap kelompok baru.
+    const newest = spark?.times.at(-1) ?? -Infinity
     if (!spark) {
-      this.sparks.set(symbol, { newest: start, prices: [price] })
-    } else if (start === spark.newest) {
+      this.sparks.set(symbol, { times: [start], prices: [price] })
+    } else if (start === newest) {
       spark.prices[spark.prices.length - 1] = price
-    } else if (start > spark.newest) {
-      spark.newest = start
+    } else if (start > newest) {
+      spark.times.push(start)
       spark.prices.push(price)
-      if (spark.prices.length > MAX_POINTS) spark.prices.shift()
+      if (spark.prices.length > MAX_POINTS) {
+        spark.times.shift()
+        spark.prices.shift()
+      }
     } else {
       // Trade telat (lebih lama dari kelompok terbaru) nggak boleh mengacak garis.
       return

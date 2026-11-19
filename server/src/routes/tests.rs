@@ -30,7 +30,7 @@ use crate::{
     hub::Hub,
     market::{
         MarketDataSource, MarketError, MarketStatus, Profile, Quote, SymbolInfo, SymbolKind, Trade,
-        TradeFeed,
+        TradeBatch, TradeFeed,
     },
     state::AppState,
 };
@@ -121,9 +121,17 @@ fn state(db: PgPool) -> AppState {
 }
 
 fn state_with_feed(db: PgPool, feed: Arc<dyn TradeFeed>) -> AppState {
-    let (trades, _) = broadcast::channel(1);
-    let hub = Arc::new(Hub::new(feed, trades));
-    AppState {
+    state_with_trades(db, feed).0
+}
+
+/// Seperti `state_with_feed`, plus pengirim broadcast untuk menyuntik trade ke `/ws`.
+fn state_with_trades(
+    db: PgPool,
+    feed: Arc<dyn TradeFeed>,
+) -> (AppState, broadcast::Sender<TradeBatch>) {
+    let (trades, _) = broadcast::channel(8);
+    let hub = Arc::new(Hub::new(feed, trades.clone()));
+    let state = AppState {
         market: Arc::new(FakeMarket),
         recorder: Recorder::new(&hub),
         hub,
@@ -132,7 +140,8 @@ fn state_with_feed(db: PgPool, feed: Arc<dyn TradeFeed>) -> AppState {
         tasks: TaskTracker::new(),
         webhook_secret: None,
         admin_token: Some(Arc::new(ADMIN.into())),
-    }
+    };
+    (state, trades)
 }
 
 fn app(db: PgPool) -> Router {
@@ -542,6 +551,7 @@ async fn ws_next(socket: &mut Socket) -> Value {
 #[sqlx::test]
 async fn ws_sends_history_after_subscribe(db: PgPool) {
     let state = state(db);
+    state.recorder.watch("AAPL").unwrap();
     state.recorder.record(&[Trade {
         symbol: "AAPL".into(),
         price: 100.5,
@@ -571,5 +581,30 @@ async fn ws_sends_history_after_subscribe(db: PgPool) {
     assert_eq!(
         ws_next(&mut socket).await,
         json!({"type": "history", "symbol": "MSFT", "points": []})
+    );
+}
+
+#[sqlx::test]
+async fn ws_forwards_only_subscribed_trades_after_history(db: PgPool) {
+    let (state, trades) = state_with_trades(db, Arc::new(NoFeed));
+    let mut socket = connect_ws(state).await;
+
+    ws_send(&mut socket, json!({"type": "subscribe", "symbol": "AAPL"})).await;
+    assert_eq!(ws_next(&mut socket).await["type"], "history");
+
+    let trade = |symbol: &str, price: f64| Trade {
+        symbol: symbol.into(),
+        price,
+        timestamp: 30_000,
+        volume: 1.0,
+    };
+    trades
+        .send(Arc::from(vec![trade("AAPL", 101.0), trade("MSFT", 50.0)]))
+        .unwrap();
+    assert_eq!(
+        ws_next(&mut socket).await,
+        json!({"type": "trades", "data": [
+            {"symbol": "AAPL", "price": 101.0, "timestamp": 30000, "volume": 1.0}
+        ]})
     );
 }

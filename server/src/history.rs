@@ -8,8 +8,6 @@
 //! Kelompok cuma dibuat kalau ada trade. Di luar jam bursa isinya jadi "30 menit terakhir
 //! yang ada transaksinya", bukan garis datar.
 
-#![cfg_attr(not(test), allow(dead_code))] // `points` dipakai mulai Task 3 (/ws)
-
 use std::{
     collections::{HashMap, VecDeque},
     sync::{Arc, Mutex},
@@ -41,7 +39,7 @@ pub struct History {
 }
 
 impl History {
-    pub fn record(&self, trades: &[Trade]) {
+    pub fn record<'a>(&self, trades: impl IntoIterator<Item = &'a Trade>) {
         let mut buckets = self.buckets.lock().unwrap();
         for trade in trades {
             // `div_euclid` = pembulatan ke bawah juga untuk angka negatif (`/` membulatkan
@@ -104,7 +102,11 @@ impl Recorder {
     /// Simbol yang dihapus dari watchlist ikut kehilangan riwayatnya: kalau ditambah lagi,
     /// garisnya mulai dari kosong, bukan menyambung data lama yang sudah bolong.
     pub fn unwatch(&self, symbol: &str) {
-        self.subscription.lock().unwrap().remove(symbol);
+        // Lock subscription dipegang sampai `forget` selesai, urutannya sama dengan `record`
+        // (subscription dulu, baru buckets): batch yang sedang dicatat selesai dulu, baru
+        // riwayatnya dibuang, jadi nggak ada sisa yang tertulis sesudahnya.
+        let mut subscription = self.subscription.lock().unwrap();
+        subscription.remove(symbol);
         self.history.forget(symbol);
     }
 
@@ -112,8 +114,15 @@ impl Recorder {
         self.history.points(symbol)
     }
 
+    /// Cuma simbol yang sedang dipantau. Broadcast berisi trade semua simbol yang ditonton
+    /// siapa pun, termasuk simbol yang baru dihapus tapi masih terbuka di tab pengunjung.
     pub fn record(&self, trades: &[Trade]) {
-        self.history.record(trades);
+        let subscription = self.subscription.lock().unwrap();
+        self.history.record(
+            trades
+                .iter()
+                .filter(|trade| subscription.contains(&trade.symbol)),
+        );
     }
 
     /// Dipanggil sekali saat startup. Gagal pantau satu simbol cuma dicatat: server tetap
@@ -279,6 +288,17 @@ mod tests {
     }
 
     #[test]
+    fn trades_for_unwatched_symbols_are_ignored() {
+        let (recorder, _, _) = recorder();
+        recorder.watch("AAPL").unwrap();
+        recorder.unwatch("AAPL");
+        // Tab pengunjung yang masih menonton AAPL membuat trade-nya tetap lewat broadcast.
+        recorder.record(&[trade("AAPL", 0, 1.0), trade("NVDA", 0, 2.0)]);
+        assert!(recorder.points("AAPL").is_empty());
+        assert!(recorder.points("NVDA").is_empty());
+    }
+
+    #[test]
     fn unwatch_forgets_history() {
         let (recorder, _, _) = recorder();
         recorder.watch("AAPL").unwrap();
@@ -291,6 +311,7 @@ mod tests {
     #[tokio::test]
     async fn spawned_recorder_reads_the_broadcast() {
         let (recorder, _, trades) = recorder();
+        recorder.watch("AAPL").unwrap();
         let shutdown = CancellationToken::new();
         let tasks = TaskTracker::new();
         Arc::clone(&recorder).spawn(trades.subscribe(), shutdown.clone(), &tasks);

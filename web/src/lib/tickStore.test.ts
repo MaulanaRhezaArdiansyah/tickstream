@@ -168,13 +168,32 @@ it('trade live menyambung dari riwayat', () => {
   expect(store.getSparks().AAPL).toEqual([5, 7, 8])
 })
 
-it('seed kedua menggantikan, bukan menambah', () => {
+it('riwayat kosong setelah server restart nggak menghapus garis', () => {
   const store = new TickStore()
   store.apply([tradeAt('AAPL', 0, 3), tradeAt('AAPL', 10_000, 4)])
-  // Reconnect: riwayat dari server sudah memuat trade tadi, jadi seluruhnya diganti.
+  store.seed('AAPL', [])
+  nextFrame()
+  expect(store.getSparks().AAPL).toEqual([3, 4])
+})
+
+it('titik lokal yang lebih baru dari riwayat disambung di belakang', () => {
+  const store = new TickStore()
+  store.apply([tradeAt('AAPL', 0, 3), tradeAt('AAPL', 10_000, 4)])
   store.seed('AAPL', [[0, 1]])
   nextFrame()
-  expect(store.getSparks().AAPL).toEqual([1])
+  expect(store.getSparks().AAPL).toEqual([1, 4])
+})
+
+it('seed kedua nggak menggandakan ekor', () => {
+  const store = new TickStore()
+  store.apply([tradeAt('AAPL', 0, 3), tradeAt('AAPL', 10_000, 4)])
+  // Reconnect: riwayat server sudah memuat kelompok yang tadi diterima live.
+  store.seed('AAPL', [
+    [0, 1],
+    [10_000, 2],
+  ])
+  nextFrame()
+  expect(store.getSparks().AAPL).toEqual([1, 2])
 })
 
 it('takeTradeCount mengembalikan jumlah lalu mereset', () => {

@@ -3,6 +3,7 @@ mod config;
 mod error;
 mod extract;
 mod finnhub;
+mod history;
 mod hub;
 mod market;
 mod routes;

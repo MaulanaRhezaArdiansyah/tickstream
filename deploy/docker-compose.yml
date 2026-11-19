@@ -1,6 +1,7 @@
-# Production: Postgres + app + Caddy (HTTPS otomatis dari Let's Encrypt).
-#   cp .env.example .env   # lalu isi
-#   docker compose up -d --build
+# Production: Postgres + app, ditambah Caddy (HTTPS otomatis) kalau VPS-nya masih kosong.
+#   cp .env.example .env                        # lalu isi
+#   docker compose --profile caddy up -d --build  # VPS kosong: Caddy pegang port 80/443
+#   docker compose up -d --build                  # sudah ada nginx: lihat nginx.conf
 name: tickstream
 
 services:
@@ -20,8 +21,12 @@ services:
     # Tanpa `ports`: database cuma bisa dihubungi dari dalam jaringan compose.
 
   app:
+    image: tickstream:latest
     build: ..
     restart: unless-stopped
+    # Cuma loopback: yang boleh menghubungi app langsung hanya proxy di mesin yang sama.
+    ports:
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
     depends_on:
       db:
         condition: service_healthy
@@ -33,6 +38,7 @@ services:
 
   caddy:
     image: caddy:2
+    profiles: [caddy]
     restart: unless-stopped
     depends_on:
       - app
@@ -41,7 +47,7 @@ services:
       - "443:443"
       - "443:443/udp"
     environment:
-      DOMAIN: ${DOMAIN:?isi DOMAIN di deploy/.env}
+      DOMAIN: ${DOMAIN:-} # wajib kalau memakai profile caddy
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data # sertifikat; hilang = minta ulang ke Let's Encrypt

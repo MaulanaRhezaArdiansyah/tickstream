@@ -138,20 +138,32 @@ database keep working. CI runs all of the above on every push.
 
 ## Deploying to a VPS
 
-One image (`Dockerfile`) holds the server and the built page. `deploy/` runs it with PostgreSQL and
-Caddy, which gets the HTTPS certificate and proxies the WebSocket.
-
-You need Docker on the VPS, ports 80 and 443 open, and a domain whose A record points at the VPS.
+One image (`Dockerfile`) holds the server and the built page. `deploy/` runs it with PostgreSQL;
+the app listens on `127.0.0.1` only, behind a reverse proxy on the same machine. You need Docker on
+the VPS and a domain whose A record points at it.
 
 ```sh
 git clone https://github.com/MaulanaRhezaArdiansyah/tickstream.git
 cd tickstream/deploy
-cp .env.example .env          # DOMAIN, FINNHUB_API_KEY, POSTGRES_PASSWORD, ADMIN_TOKEN
-docker compose up -d --build
+cp .env.example .env          # DOMAIN, FINNHUB_API_KEY, POSTGRES_PASSWORD, ADMIN_TOKEN, APP_PORT
 ```
 
-Update with `git pull && docker compose up -d --build`; read logs with `docker compose logs -f app`.
-PostgreSQL publishes no port and keeps its data in the `pgdata` volume.
+**A fresh VPS:** `docker compose --profile caddy up -d --build`. Caddy takes ports 80 and 443,
+gets the HTTPS certificate and proxies the WebSocket.
+
+**A VPS that already runs nginx** for other sites: `docker compose up -d --build`, then add the
+site from `deploy/nginx.conf` and run `certbot --nginx`. The steps are at the top of that file.
+
+Compiling Rust needs more memory than a small VPS has to spare. To build on your machine instead:
+
+```sh
+docker build -t tickstream:latest .
+docker save tickstream:latest | gzip | ssh user@vps 'gunzip | docker load'
+ssh user@vps 'cd tickstream/deploy && docker compose up -d'
+```
+
+Read logs with `docker compose logs -f app`. PostgreSQL publishes no port and keeps its data in the
+`pgdata` volume.
 
 To edit the watchlist, open the site, choose "Masuk sebagai pemilik" (sign in as owner) under the
 board and paste `ADMIN_TOKEN`.

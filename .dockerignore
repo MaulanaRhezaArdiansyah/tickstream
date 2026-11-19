@@ -1,0 +1,6 @@
+.git
+**/.env
+server/target
+web/node_modules
+web/dist
+us-stock-dashboard.html

@@ -1,0 +1,53 @@
+# Production: Postgres + app + Caddy (HTTPS otomatis dari Let's Encrypt).
+#   cp .env.example .env   # lalu isi
+#   docker compose up -d --build
+name: tickstream
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tickstream
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?isi POSTGRES_PASSWORD di deploy/.env}
+      POSTGRES_DB: tickstream
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tickstream"]
+      interval: 5s
+      retries: 10
+    # Tanpa `ports`: database cuma bisa dihubungi dari dalam jaringan compose.
+
+  app:
+    build: ..
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://tickstream:${POSTGRES_PASSWORD}@db:5432/tickstream
+      FINNHUB_API_KEY: ${FINNHUB_API_KEY:?isi FINNHUB_API_KEY di deploy/.env}
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      FINNHUB_WEBHOOK_SECRET: ${FINNHUB_WEBHOOK_SECRET:-}
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?isi DOMAIN di deploy/.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data # sertifikat; hilang = minta ulang ke Let's Encrypt
+      - caddy_config:/config
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

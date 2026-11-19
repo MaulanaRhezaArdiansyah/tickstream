@@ -28,6 +28,11 @@ Endpoint: `/api/quote?symbol=NVDA`, `/api/profile?symbol=NVDA`, `/api/market-sta
 `GET/POST /api/watchlist` (body `{"symbol":"AMD"}`), `DELETE /api/watchlist/{symbol}`,
 WebSocket `/ws` (kirim `{"type":"subscribe","symbol":"AAPL"}`). Semua error berbentuk `{"error":"..."}`.
 
+Pengunjung cuma bisa melihat. Menambah/menghapus watchlist butuh header
+`Authorization: Bearer <ADMIN_TOKEN>`; di browser lewat link "Masuk sebagai pemilik" di bawah
+halaman. Quote, profil, dan subscribe WebSocket cuma dilayani untuk simbol di watchlist, supaya
+kuota Finnhub dan slot live nggak bisa dihabiskan orang lain.
+
 Webhook Finnhub: isi `FINNHUB_WEBHOOK_SECRET` di `.env`, lalu daftarkan
 `https://<host-publik>/webhook/finnhub` di dashboard Finnhub. Event disimpan mentah ke tabel
 `webhook_events` (JSONB). Finnhub harus bisa menjangkau server; untuk dev lokal butuh tunnel.
@@ -56,3 +61,21 @@ npm run dev                   # http://localhost:5173, /api diteruskan ke server
 ```
 
 Server di port lain? `API_TARGET=http://127.0.0.1:8090 npm run dev`.
+
+## Deploy (VPS)
+
+Satu image (`Dockerfile`) berisi server dan halaman hasil build; server menyajikan keduanya dari
+origin yang sama. `deploy/` menjalankannya bersama Postgres dan Caddy, yang mengurus HTTPS
+otomatis dan meneruskan WebSocket.
+
+Syarat: Docker di VPS, port 80 dan 443 terbuka, A record domain mengarah ke IP VPS.
+
+```sh
+git clone https://github.com/MaulanaRhezaArdiansyah/tickstream.git
+cd tickstream/deploy
+cp .env.example .env          # isi DOMAIN, FINNHUB_API_KEY, POSTGRES_PASSWORD, ADMIN_TOKEN
+docker compose up -d --build
+```
+
+Update: `git pull && docker compose up -d --build`. Log: `docker compose logs -f app`.
+Database cuma bisa diakses dari dalam jaringan compose; datanya di volume `pgdata`.

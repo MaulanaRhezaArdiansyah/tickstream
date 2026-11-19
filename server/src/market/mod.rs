@@ -2,8 +2,11 @@
 //! jadi sumber data bisa diganti mock di test.
 
 mod cache;
+mod news;
 
 pub use cache::MarketCache;
+#[allow(unused_imports)] // dipakai mulai Task 2
+pub use news::{CompanyNews, NewsArticle, NewsItem, iso_date, prepare_news};
 
 use std::sync::Arc;
 

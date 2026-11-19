@@ -21,6 +21,14 @@ const trade = (symbol: string, price: number, volume = 1): Trade => ({
   timestamp: 0,
 })
 
+/** Trade dengan waktu (Unix ms), untuk tes sparkline yang dikelompokkan per 10 detik. */
+const tradeAt = (symbol: string, timestamp: number, price: number): Trade => ({
+  symbol,
+  price,
+  volume: 1,
+  timestamp,
+})
+
 beforeEach(() => {
   frames = []
   cancelFrame.mockClear()
@@ -72,7 +80,6 @@ it('turun, naik, lalu harga sama', () => {
   expect(tick.high).toBe(11)
   expect(tick.low).toBe(9)
   expect(tick.volume).toBe(10)
-  expect(tick.points).toEqual([10, 9, 11, 11])
 })
 
 it('flash masih null sampai harganya pertama kali berubah', () => {
@@ -98,14 +105,76 @@ it('simbol yang nggak berubah tetap objek yang sama', () => {
   expect(store.getSnapshot().MSFT).toBe(msft)
 })
 
-it('sparkline menyimpan paling banyak 300 titik', () => {
+it('sparkline yang nggak berubah tetap array yang sama', () => {
   const store = new TickStore()
-  store.apply(Array.from({ length: 301 }, (_, i) => trade('AAPL', i)))
+  store.apply([tradeAt('AAPL', 0, 10), tradeAt('MSFT', 0, 20)])
+  nextFrame()
+  const msft = store.getSparks().MSFT
+
+  store.apply([tradeAt('AAPL', 10_000, 11)])
+  nextFrame()
+  expect(store.getSparks().AAPL).toEqual([10, 11])
+  expect(store.getSparks().MSFT).toBe(msft)
+})
+
+it('sparkline per 10 detik: kelompok yang sama menimpa harga', () => {
+  const store = new TickStore()
+  store.apply([tradeAt('AAPL', 0, 10), tradeAt('AAPL', 9_999, 11), tradeAt('AAPL', 10_000, 12)])
+  nextFrame()
+  expect(store.getSparks().AAPL).toEqual([11, 12])
+})
+
+it('trade yang lebih lama dari kelompok terbaru diabaikan', () => {
+  const store = new TickStore()
+  store.apply([tradeAt('AAPL', 20_000, 5), tradeAt('AAPL', 10_000, 9)])
+  nextFrame()
+  expect(store.getSparks().AAPL).toEqual([5])
+})
+
+it('sparkline menyimpan paling banyak 180 titik', () => {
+  const store = new TickStore()
+  store.apply(Array.from({ length: 181 }, (_, i) => tradeAt('AAPL', i * 10_000, i)))
   nextFrame()
 
-  const { points } = store.getSnapshot().AAPL
-  expect(points).toHaveLength(300)
+  const points = store.getSparks().AAPL
+  expect(points).toHaveLength(180)
   expect(points[0]).toBe(1)
+})
+
+it('seed mengisi sparkline tanpa membuat harga live', () => {
+  const store = new TickStore()
+  store.seed('AAPL', [
+    [0, 5],
+    [10_000, 6],
+  ])
+  nextFrame()
+  expect(store.getSparks().AAPL).toEqual([5, 6])
+  // Malam hari belum ada trade: harga, volume dan high/low tetap dari quote.
+  expect(store.getSnapshot().AAPL).toBeUndefined()
+})
+
+it('trade live menyambung dari riwayat', () => {
+  const store = new TickStore()
+  store.seed('AAPL', [
+    [0, 5],
+    [10_000, 6],
+  ])
+  store.apply([tradeAt('AAPL', 15_000, 7)])
+  nextFrame()
+  expect(store.getSparks().AAPL).toEqual([5, 7])
+
+  store.apply([tradeAt('AAPL', 20_000, 8)])
+  nextFrame()
+  expect(store.getSparks().AAPL).toEqual([5, 7, 8])
+})
+
+it('seed kedua menggantikan, bukan menambah', () => {
+  const store = new TickStore()
+  store.apply([tradeAt('AAPL', 0, 3), tradeAt('AAPL', 10_000, 4)])
+  // Reconnect: riwayat dari server sudah memuat trade tadi, jadi seluruhnya diganti.
+  store.seed('AAPL', [[0, 1]])
+  nextFrame()
+  expect(store.getSparks().AAPL).toEqual([1])
 })
 
 it('takeTradeCount mengembalikan jumlah lalu mereset', () => {

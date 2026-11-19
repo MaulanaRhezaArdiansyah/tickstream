@@ -156,16 +156,26 @@ HTTPS certificate and proxies the WebSocket.
 **A VPS that already runs nginx** for other sites: `docker compose up -d`, then add the site from
 `deploy/nginx.conf` and run `certbot --nginx`. The steps are at the top of that file.
 
-The VPS does not compile anything. After the checks pass on `main`, GitHub Actions builds the
-image and pushes it to `ghcr.io/maulanarhezaardiansyah/tickstream`, tagged `latest` and
-`sha-<commit>`. To update:
+### Continuous deployment
 
-```sh
-docker compose pull && docker compose up -d
-```
+Every push to `main` goes through the same pipeline:
 
-To roll back, set `TAG=sha-<commit>` in `.env` and run the same two commands. Building the image
-yourself still works with `docker compose up -d --build`.
+1. **Checks:** formatting, Clippy and tests for the server (against a real PostgreSQL), lint and a
+   type-checked build for the web app.
+2. **Image:** the Dockerfile is built and pushed to `ghcr.io/maulanarhezaardiansyah/tickstream`,
+   tagged `latest` and `sha-<commit>`. The VPS never compiles anything.
+3. **Deploy:** the workflow connects over SSH with a key that can run only
+   [`deploy/tickstream-deploy`](deploy/tickstream-deploy) (`restrict,command=...` in
+   `authorized_keys`: no shell, no port forwarding). The script checks out the commit, runs its
+   image, waits for `/health`, and rolls back to the previous tag if the new one does not come up.
+
+To set it up for your own server, install the script as `/usr/local/bin/tickstream-deploy`, add a
+deploy key restricted to it, and store `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS` and `DEPLOY_TARGET`
+(`user@host`) as repository secrets.
+
+By hand, the same thing is `docker compose pull && docker compose up -d`. To roll back, set
+`TAG=sha-<commit>` in `.env` and run it again. Building the image yourself still works with
+`docker compose up -d --build`.
 
 Read logs with `docker compose logs -f app`. PostgreSQL publishes no port and keeps its data in the
 `pgdata` volume.

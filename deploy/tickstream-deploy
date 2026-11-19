@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# Forced command for the Tickstream deploy key (see the deploy job in .github/workflows/ci.yml).
+# Installed as /usr/local/bin/tickstream-deploy; the key in authorized_keys can run nothing else.
+#   publish <sha>   check out <sha>, run its GHCR image (sha-<7 chars>), and roll back to the
+#                   previous tag if the health check fails
+#   check           print the deployed tag
+set -euo pipefail
+set -f
+
+ROOT=/home/rzlivr/tickstream
+DEPLOY=$ROOT/deploy
+PROBE=http://127.0.0.1:8002/health
+
+set -- ${SSH_ORIGINAL_COMMAND:-$*}
+
+probe() {
+  for _ in $(seq 1 30); do
+    curl -fsS -o /dev/null "$PROBE" 2>/dev/null && return 0
+    sleep 1
+  done
+  return 1
+}
+
+# TAG in deploy/.env decides which image compose runs, so a manual `docker compose up -d`
+# later keeps the same release.
+set_tag() {
+  if grep -q '^TAG=' "$DEPLOY/.env"; then
+    sed -i "s/^TAG=.*/TAG=$1/" "$DEPLOY/.env"
+  else
+    echo "TAG=$1" >> "$DEPLOY/.env"
+  fi
+}
+
+compose() { (cd "$DEPLOY" && sudo docker compose "$@"); }
+
+case "${1:-}" in
+  publish)
+    sha=${2:-}
+    [[ $sha =~ ^[0-9a-f]{40}$ ]] || { echo "publish needs a full commit sha" >&2; exit 2; }
+    tag=sha-${sha:0:7}
+    previous=$(sed -n 's/^TAG=//p' "$DEPLOY/.env")
+    previous=${previous:-latest}
+
+    # Compose file and config follow the same commit as the image.
+    git -C "$ROOT" fetch -q origin main
+    git -C "$ROOT" reset -q --hard "$sha"
+
+    set_tag "$tag"
+    compose pull -q app
+    compose up -d --remove-orphans app
+
+    if ! probe; then
+      echo "Release $tag did not come up, rolling back to $previous" >&2
+      set_tag "$previous"
+      compose up -d app
+      exit 1
+    fi
+    # Keep the disk in check: drop images no container uses that are older than a week.
+    sudo docker image prune -af --filter until=168h >/dev/null
+    echo "Deployed $tag"
+    ;;
+  check)
+    sed -n 's/^TAG=//p' "$DEPLOY/.env"
+    ;;
+  *)
+    echo "Command not allowed" >&2
+    exit 1
+    ;;
+esac

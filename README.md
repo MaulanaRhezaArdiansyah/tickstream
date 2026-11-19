@@ -5,6 +5,8 @@
 A real-time watchlist for US stocks and crypto. The backend is Rust (Axum, Tokio, SQLx), the
 frontend is React with TypeScript, and the market data comes from Finnhub's free tier.
 
+**Live demo:** https://tickstream.rhezaardiansyah.com
+
 ![Tickstream watchlist with prices, daily change and intraday range](docs/screenshot.png)
 
 The interface and the code comments are in Indonesian. The code itself, commit messages and this

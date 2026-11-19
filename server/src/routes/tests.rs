@@ -713,3 +713,38 @@ async fn metrics_render_what_was_recorded(db: PgPool) {
     let (_, _, body) = get_metrics(&app, Some(ADMIN)).await;
     assert!(body.contains("tickstream_start_time_seconds"), "{body}");
 }
+
+#[sqlx::test]
+async fn http_requests_are_counted_by_route_pattern(db: PgPool) {
+    let m = crate::metrics::testing::capture();
+    let app = app(db);
+
+    call(&app, "GET", "/api/quote?symbol=AAPL", None).await;
+    call_as(&app, None, "DELETE", "/api/watchlist/AAPL", None).await;
+    call(&app, "GET", "/tidak-ada", None).await;
+
+    let requests = "tickstream_http_requests_total";
+    assert_eq!(
+        m.counter(requests, &[("route", "/api/quote"), ("status", "200")]),
+        1
+    );
+    // Pola route, bukan path asli: simbol nggak pernah jadi label.
+    assert_eq!(
+        m.counter(
+            requests,
+            &[("route", "/api/watchlist/{symbol}"), ("status", "401")]
+        ),
+        1
+    );
+    assert_eq!(
+        m.counter(requests, &[("route", "other"), ("status", "404")]),
+        1
+    );
+    assert_eq!(
+        m.histogram_len(
+            "tickstream_http_request_duration_seconds",
+            &[("route", "/api/quote")]
+        ),
+        1
+    );
+}

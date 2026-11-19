@@ -4,6 +4,7 @@ import { errorMessage } from './api/client'
 import { AddSymbolForm } from './components/AddSymbolForm'
 import { Header } from './components/Header'
 import { QuoteBoard } from './components/QuoteBoard'
+import { SessionBar } from './components/SessionBar'
 import { Toasts } from './components/Toasts'
 import { EmptyWatchlist, WatchlistLoadError } from './components/WatchlistNotice'
 import { useLiveTicks } from './hooks/useLiveTicks'
@@ -48,6 +49,7 @@ export function App() {
   return (
     <>
       <Header connection={connection} ticksPerSecond={ticksPerSecond} />
+      <SessionBar />
       <main className="page">
         <div className="watchlist-head">
           <h1>

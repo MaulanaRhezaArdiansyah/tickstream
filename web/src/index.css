@@ -493,3 +493,86 @@ main {
     animation: none !important;
   }
 }
+
+/* ---------- Bar sesi bursa ---------- */
+
+.session {
+  padding-block: 20px 4px;
+}
+
+.session-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-size: 15px;
+}
+
+.session-head b {
+  font-weight: 600;
+}
+
+.session-note {
+  font-size: 13px;
+}
+
+.session-bar {
+  position: relative;
+  display: flex;
+  gap: 2px;
+}
+
+.session-seg {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.session-track {
+  display: block;
+  height: 10px;
+  background: var(--track);
+}
+
+.session-seg:first-child .session-track {
+  border-radius: 3px 0 0 3px;
+}
+
+.session-seg:last-child .session-track {
+  border-radius: 0 3px 3px 0;
+}
+
+/* Segmen fase yang sedang berjalan sedikit lebih terang. */
+.session-seg.on .session-track {
+  background: var(--track-on);
+}
+
+.session-label {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.session-seg.on .session-label {
+  color: var(--text);
+}
+
+.session-now {
+  position: absolute;
+  top: -4px;
+  width: 2px;
+  height: 18px;
+  margin-left: -1px;
+  background: var(--accent);
+}
+
+@media (max-width: 560px) {
+  .session-note,
+  .session-label .word {
+    display: none;
+  }
+}

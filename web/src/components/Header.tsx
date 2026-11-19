@@ -2,7 +2,6 @@ import { memo } from 'react'
 
 import type { ConnectionState } from '../hooks/useLiveTicks'
 import { Clock } from './Clock'
-import { MarketStatusLabel } from './MarketStatusLabel'
 
 interface HeaderProps {
   connection: ConnectionState
@@ -22,7 +21,6 @@ export const Header = memo(function Header({ connection, ticksPerSecond }: Heade
       <div className="page">
         <div className="brand">US Stock Live</div>
         <div className="topbar-meta">
-          <MarketStatusLabel />
           <Clock />
           <span className="conn">
             {/* Kelas dot = nama state, jadi warnanya diatur penuh dari CSS. */}

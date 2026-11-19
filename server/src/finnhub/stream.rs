@@ -82,6 +82,19 @@ async fn run(
     let mut backoff = MIN_BACKOFF;
 
     loop {
+        // Belum ada yang minta simbol apa pun: jangan buka koneksi dulu. Jatahnya cuma satu
+        // koneksi per key, jadi server yang nggak sedang dipakai browser nggak ikut memakainya.
+        if symbols.is_empty() {
+            match commands.recv().await {
+                None => return,
+                Some(Command::Subscribe(symbol)) => {
+                    symbols.insert(symbol);
+                }
+                Some(Command::Unsubscribe(_)) => {}
+            }
+            continue;
+        }
+
         match session(&api_key, &mut symbols, &mut commands, &trades, &mut backoff).await {
             Ok(()) => {
                 tracing::info!("finnhub stream berhenti: semua pegangan sudah di-drop");

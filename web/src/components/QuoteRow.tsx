@@ -15,8 +15,11 @@ interface QuoteRowProps {
   symbol: string
   snapshot: Snapshot | undefined
   live: LiveTick | undefined
-  /** Harus fungsi yang stabil (useCallback), kalau nggak `memo` jadi percuma. */
-  onRemove: (symbol: string) => void
+  /**
+   * Harus fungsi yang stabil (useCallback), kalau nggak `memo` jadi percuma.
+   * Nggak diisi = tanpa tombol hapus (pengunjung).
+   */
+  onRemove?: (symbol: string) => void
 }
 
 /**
@@ -97,15 +100,17 @@ export const QuoteRow = memo(function QuoteRow({
       )}
 
       <div className="num">
-        <button
-          className="icon-btn"
-          type="button"
-          title={`Hapus ${symbol}`}
-          aria-label={`Hapus ${symbol} dari watchlist`}
-          onClick={() => onRemove(symbol)}
-        >
-          <XIcon />
-        </button>
+        {onRemove && (
+          <button
+            className="icon-btn"
+            type="button"
+            title={`Hapus ${symbol}`}
+            aria-label={`Hapus ${symbol} dari watchlist`}
+            onClick={() => onRemove(symbol)}
+          >
+            <XIcon />
+          </button>
+        )}
       </div>
     </li>
   )

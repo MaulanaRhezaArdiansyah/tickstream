@@ -23,14 +23,21 @@ interface RequestOptions {
   method?: 'GET' | 'POST' | 'DELETE'
   body?: unknown
   signal?: AbortSignal
+  /** Token pemilik, dikirim sebagai `Authorization: Bearer ...`. */
+  token?: string
 }
 
-async function request<T>(path: string, { method = 'GET', body, signal }: RequestOptions = {}) {
-  const init: RequestInit = { method, signal }
+async function request<T>(
+  path: string,
+  { method = 'GET', body, signal, token }: RequestOptions = {},
+) {
+  const headers: Record<string, string> = {}
+  const init: RequestInit = { method, signal, headers }
   if (body !== undefined) {
     init.body = JSON.stringify(body)
-    init.headers = { 'Content-Type': 'application/json' }
+    headers['Content-Type'] = 'application/json'
   }
+  if (token) headers.Authorization = `Bearer ${token}`
 
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(path, init)
@@ -84,11 +91,16 @@ export const fetchSymbols = (signal?: AbortSignal) =>
 export const fetchWatchlist = (signal?: AbortSignal) =>
   request<string[]>('/api/watchlist', { signal })
 
-/** Mengembalikan simbol yang sudah dinormalisasi server (mis. "nvda" → "NVDA"). */
-export const addToWatchlist = (symbol: string) =>
-  request<string>('/api/watchlist', { method: 'POST', body: { symbol } })
+/** 204 kalau token pemilik diterima; ApiError 401 kalau nggak. */
+export const checkOwnerToken = (token: string, signal?: AbortSignal) =>
+  request<void>('/api/admin', { token, signal })
 
-export const removeFromWatchlist = (symbol: string) =>
+/** Mengembalikan simbol yang sudah dinormalisasi server (mis. "nvda" → "NVDA"). */
+export const addToWatchlist = (symbol: string, token: string) =>
+  request<string>('/api/watchlist', { method: 'POST', body: { symbol }, token })
+
+export const removeFromWatchlist = (symbol: string, token: string) =>
   request<void>(`/api/watchlist/${encodeURIComponent(symbol)}`, {
     method: 'DELETE',
+    token,
   })

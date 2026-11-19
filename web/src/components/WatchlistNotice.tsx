@@ -1,12 +1,16 @@
-/** Watchlist belum berisi apa pun: arahkan ke form tambah di atasnya. */
-export function EmptyWatchlist() {
+/** Watchlist belum berisi apa pun: pemilik diarahkan ke form tambah di atasnya. */
+export function EmptyWatchlist({ canEdit }: { canEdit: boolean }) {
   return (
     <section className="notice">
       <h2>Belum ada simbol</h2>
-      <p>
-        Ketik ticker saham US (AAPL, NVDA) atau pasangan kripto (BINANCE:BTCUSDT) di kolom Tambah
-        ticker untuk mulai memantau harganya.
-      </p>
+      {canEdit ? (
+        <p>
+          Ketik ticker saham US (AAPL, NVDA), nama perusahaan, atau pasangan kripto
+          (BINANCE:BTCUSDT) di kolom Tambah simbol untuk mulai memantau harganya.
+        </p>
+      ) : (
+        <p>Pemilik watchlist ini belum menambahkan simbol apa pun.</p>
+      )}
     </section>
   )
 }

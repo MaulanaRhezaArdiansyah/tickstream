@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import { addToWatchlist, errorMessage, fetchWatchlist, removeFromWatchlist } from '../api/client'
+import {
+  ApiError,
+  addToWatchlist,
+  errorMessage,
+  fetchWatchlist,
+  removeFromWatchlist,
+} from '../api/client'
 
 export interface Watchlist {
   /** `null` selama daftar pertama belum termuat. */
@@ -13,8 +19,11 @@ export interface Watchlist {
   remove: (symbol: string) => Promise<void>
 }
 
-/** Watchlist yang tersimpan di server. Daftar lokal baru diubah setelah server setuju. */
-export function useWatchlist(): Watchlist {
+/**
+ * Watchlist yang tersimpan di server. Daftar lokal baru diubah setelah server setuju.
+ * Mengubahnya butuh `ownerToken`; tanpa token, `add`/`remove` langsung ditolak.
+ */
+export function useWatchlist(ownerToken: string | null): Watchlist {
   const [symbols, setSymbols] = useState<readonly string[] | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   // Dinaikkan oleh `reload`. Karena jadi dependency effect di bawah, menaikkannya
@@ -36,15 +45,27 @@ export function useWatchlist(): Watchlist {
 
   // useCallback: fungsi yang sama dikembalikan di setiap render. Tanpa ini, tiap render
   // bikin fungsi baru dan komponen `memo` yang menerimanya (QuoteRow) ikut render ulang.
-  const add = useCallback(async (raw: string) => {
-    const symbol = await addToWatchlist(raw)
-    setSymbols((prev) => (prev?.includes(symbol) ? prev : [...(prev ?? []), symbol]))
-  }, [])
+  const add = useCallback(
+    async (raw: string) => {
+      const symbol = await addToWatchlist(raw, requireToken(ownerToken))
+      setSymbols((prev) => (prev?.includes(symbol) ? prev : [...(prev ?? []), symbol]))
+    },
+    [ownerToken],
+  )
 
-  const remove = useCallback(async (symbol: string) => {
-    await removeFromWatchlist(symbol)
-    setSymbols((prev) => prev?.filter((s) => s !== symbol) ?? null)
-  }, [])
+  const remove = useCallback(
+    async (symbol: string) => {
+      await removeFromWatchlist(symbol, requireToken(ownerToken))
+      setSymbols((prev) => prev?.filter((s) => s !== symbol) ?? null)
+    },
+    [ownerToken],
+  )
 
   return { symbols, loadError, reload, add, remove }
+}
+
+/** Gagal dengan bentuk yang sama seperti tolakan server, supaya penanganannya satu jalur. */
+function requireToken(token: string | null): string {
+  if (!token) throw new ApiError(401, 'cuma pemilik yang bisa mengubah watchlist')
+  return token
 }

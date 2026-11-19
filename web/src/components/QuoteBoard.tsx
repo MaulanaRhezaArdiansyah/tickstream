@@ -6,7 +6,8 @@ interface QuoteBoardProps {
   symbols: readonly string[]
   snapshots: Record<string, Snapshot>
   ticks: LiveTicks
-  onRemove: (symbol: string) => void
+  /** Nggak diisi = papan tanpa tombol hapus (pengunjung). */
+  onRemove?: (symbol: string) => void
 }
 
 export function QuoteBoard({ symbols, snapshots, ticks, onRemove }: QuoteBoardProps) {

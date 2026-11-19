@@ -9,6 +9,8 @@ export interface Snapshot {
   name?: string
   logo?: string | null
   error?: string
+  /** Quote dan profil sudah dicoba (berhasil atau gagal); simbol ini nggak memakai jatah lagi. */
+  settled?: boolean
 }
 
 // Setelah burst habis, limiter server melepas ±1 call/detik. Tiga request paralel cukup
@@ -62,7 +64,10 @@ export function useStockSnapshots(symbols: readonly string[]): Record<string, Sn
         } catch {
           // Nama cuma pelengkap; kartu tetap jalan tanpa nama.
         }
-        if (!signal.aborted) done.add(symbol)
+        if (!signal.aborted) {
+          done.add(symbol)
+          patch(symbol, { settled: true })
+        }
       })
     }
 

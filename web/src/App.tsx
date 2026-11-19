@@ -15,7 +15,7 @@ import { isUnauthorized, useOwner } from './hooks/useOwner'
 import { useStockSnapshots } from './hooks/useStockSnapshots'
 import { useToasts } from './hooks/useToasts'
 import { useWatchlist } from './hooks/useWatchlist'
-import { newsButtonId, visibleSelection } from './lib/selection'
+import { newsButtonId, selectionAfterRemove, visibleSelection } from './lib/selection'
 
 /** Dipakai selama watchlist belum termuat; konstanta supaya referensinya stabil. */
 const NO_SYMBOLS: readonly string[] = []
@@ -31,10 +31,9 @@ export function App() {
   const snapshots = useStockSnapshots(symbols)
   const { ticks, sparks, connection, ticksPerSecond } = useLiveTicks(symbols, push)
 
-  // Berita baru diambil setelah semua quote selesai (berhasil atau gagal), supaya nggak
-  // berebut jatah Finnhub dengan harga di papan.
-  const ready =
-    symbols.length > 0 && symbols.every((s) => snapshots[s]?.quote || snapshots[s]?.error)
+  // Berita baru diambil setelah quote dan profil semua simbol selesai (berhasil atau gagal),
+  // supaya nggak berebut jatah Finnhub dengan papan.
+  const ready = symbols.length > 0 && symbols.every((s) => snapshots[s]?.settled)
   const { news, load } = useNews(symbols, ready)
 
   const [selected, setSelected] = useState<string | null>(null)
@@ -85,6 +84,8 @@ export function App() {
   )
   const handleRemove = useCallback(
     (symbol: string) => {
+      // Kalau nanti ditambahkan lagi, panelnya nggak terbuka sendiri.
+      setSelected((prev) => selectionAfterRemove(prev, symbol))
       remove(symbol).catch(reportWriteError)
     },
     [remove, reportWriteError],

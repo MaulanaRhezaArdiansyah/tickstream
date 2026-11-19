@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useRef } from 'react'
 
 import type { NewsState } from '../hooks/useNews'
 import { useNow } from '../hooks/useNow'
@@ -6,6 +6,28 @@ import { fmt, splitSymbol } from '../lib/format'
 import { relativeTime } from '../lib/relativeTime'
 import { Change } from './QuoteRow'
 import { XIcon } from './XIcon'
+
+/** Sama dengan breakpoint di index.css tempat panel menutupi layar penuh. */
+const FULL_SCREEN = '(max-width: 560px)'
+
+/**
+ * Selama panel menutupi layar, Tab berputar di dalam panel; tanpa ini fokus lompat ke baris
+ * papan yang tertutup panel dan nggak kelihatan.
+ */
+function trapFocus(event: ReactKeyboardEvent<HTMLElement>) {
+  if (event.key !== 'Tab' || !window.matchMedia?.(FULL_SCREEN).matches) return
+  const items = event.currentTarget.querySelectorAll<HTMLElement>('a[href], button:not([disabled])')
+  if (items.length === 0) return
+  const first = items[0]
+  const last = items[items.length - 1]
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first.focus()
+  }
+}
 
 interface NewsPanelProps {
   symbol: string
@@ -38,7 +60,7 @@ export function NewsPanel({
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape' && !event.defaultPrevented) onClose()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
@@ -48,7 +70,7 @@ export function NewsPanel({
   const change = price != null && prevClose ? price - prevClose : null
 
   return (
-    <aside className="news-panel" aria-label={`Berita ${symbol}`}>
+    <aside className="news-panel" aria-label={`Berita ${symbol}`} onKeyDown={trapFocus}>
       <header className="news-head">
         <div className="min0">
           <h2>{ticker}</h2>

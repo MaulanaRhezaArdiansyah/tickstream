@@ -76,6 +76,48 @@ it('tutup', () => {
   expect(onClose).toHaveBeenCalledTimes(2)
 })
 
+it('Escape yang sudah dipakai elemen lain nggak menutup panel', () => {
+  const { onClose } = renderPanel(ok('x'))
+  // Mis. kolom "Tambah simbol" menutup daftar sarannya dengan Escape.
+  const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+  event.preventDefault()
+  document.dispatchEvent(event)
+  expect(onClose).not.toHaveBeenCalled()
+})
+
+function mockNarrowScreen(narrow: boolean) {
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn(() => ({ matches: narrow })),
+  )
+}
+
+it('di layar penuh (HP) Tab berputar di dalam panel', () => {
+  mockNarrowScreen(true)
+  renderPanel(ok('Judul'))
+  const close = screen.getByRole('button', { name: 'Tutup berita' })
+  const link = screen.getByRole('link', { name: 'Judul' })
+
+  link.focus()
+  fireEvent.keyDown(link, { key: 'Tab' })
+  expect(document.activeElement).toBe(close)
+
+  fireEvent.keyDown(close, { key: 'Tab', shiftKey: true })
+  expect(document.activeElement).toBe(link)
+  vi.unstubAllGlobals()
+})
+
+it('di desktop Tab nggak dibelokkan', () => {
+  mockNarrowScreen(false)
+  renderPanel(ok('Judul'))
+  const link = screen.getByRole('link', { name: 'Judul' })
+
+  link.focus()
+  fireEvent.keyDown(link, { key: 'Tab' })
+  expect(document.activeElement).toBe(link)
+  vi.unstubAllGlobals()
+})
+
 it('panel menampilkan berita simbolnya sendiri', () => {
   const { rerender } = renderPanel(ok('AMD x'))
   expect(screen.getByText('AMD x')).not.toBeNull()

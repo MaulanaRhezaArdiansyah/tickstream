@@ -155,6 +155,7 @@ async fn session(
     // Finnhub cuma menerima token lewat query string di WS. URL ini jangan pernah di-log.
     let url = format!("{WS_URL}?token={}", api_key.expose_secret());
     let (ws, _response) = connect_async(url).await.context("gagal konek")?;
+    crate::metrics::finnhub_connected();
     let (mut sink, mut stream) = ws.split();
     let connected_at = tokio::time::Instant::now();
     tracing::info!(symbols = symbols.len(), "finnhub stream terhubung");
@@ -232,6 +233,7 @@ fn handle_message(message: Message, trades: &broadcast::Sender<TradeBatch>) -> a
         Message::Text(text) => match serde_json::from_str::<Upstream>(&text) {
             Ok(Upstream::Trade { data }) => {
                 tracing::trace!(count = data.len(), "trades");
+                crate::metrics::trades_received(data.len());
                 // Gagal cuma kalau belum ada client yang mendengarkan; trade-nya memang dibuang.
                 let _ = trades.send(data.into());
             }
@@ -252,10 +254,28 @@ fn control_message(kind: &str, symbol: &str) -> Message {
 
 #[cfg(test)]
 mod tests {
-    use super::Upstream;
+    use tokio::sync::broadcast;
+    use tokio_tungstenite::tungstenite::Message;
+
+    use super::{Upstream, handle_message};
 
     fn parse(json: &str) -> Upstream {
         serde_json::from_str(json).expect("harusnya bisa di-parse")
+    }
+
+    #[test]
+    fn trades_are_counted() {
+        let m = crate::metrics::testing::capture();
+        let (trades, _rx) = broadcast::channel(8);
+        let json = r#"{"type":"trade","data":[
+            {"s":"AAPL","p":191.5,"t":1700000000123,"v":100},
+            {"s":"NVDA","p":140.0,"t":1700000000456,"v":5}
+        ]}"#;
+
+        handle_message(Message::text(json), &trades).unwrap();
+
+        assert_eq!(m.counter("tickstream_finnhub_trades_total", &[]), 2);
+        assert!(m.gauge("tickstream_finnhub_last_trade_timestamp_seconds", &[]) > 0.0);
     }
 
     #[test]

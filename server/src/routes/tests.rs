@@ -748,3 +748,25 @@ async fn http_requests_are_counted_by_route_pattern(db: PgPool) {
         1
     );
 }
+
+/// Tunggu sampai gauge `name` bernilai `expected` (maks 1 detik): koneksi WS dibuka dan
+/// ditutup oleh task server, bukan oleh test, jadi angkanya berubah sedikit terlambat.
+async fn wait_for_gauge(m: &crate::metrics::testing::Captured, name: &str, expected: f64) {
+    for _ in 0..100 {
+        if m.gauge(name, &[]) == expected {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("{name} = {}, harusnya {expected}", m.gauge(name, &[]));
+}
+
+#[sqlx::test]
+async fn ws_clients_go_up_and_back_down(db: PgPool) {
+    let m = crate::metrics::testing::capture();
+    let mut socket = connect_ws(state(db)).await;
+    wait_for_gauge(&m, "tickstream_ws_clients", 1.0).await;
+
+    socket.close(None).await.unwrap();
+    wait_for_gauge(&m, "tickstream_ws_clients", 0.0).await;
+}

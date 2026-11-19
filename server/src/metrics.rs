@@ -21,6 +21,10 @@ use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use crate::{auth::Admin, state::AppState};
 
 const START_TIME: &str = "tickstream_start_time_seconds";
+const WS_CLIENTS: &str = "tickstream_ws_clients";
+const FINNHUB_TRADES: &str = "tickstream_finnhub_trades_total";
+const LAST_TRADE: &str = "tickstream_finnhub_last_trade_timestamp_seconds";
+const FINNHUB_CONNECTS: &str = "tickstream_finnhub_ws_connects_total";
 const CACHE_REQUESTS: &str = "tickstream_cache_requests_total";
 const FINNHUB_REQUESTS: &str = "tickstream_finnhub_requests_total";
 const HTTP_REQUESTS: &str = "tickstream_http_requests_total";
@@ -51,6 +55,16 @@ pub fn install() -> anyhow::Result<PrometheusHandle> {
 /// Teks `# HELP` yang ikut dirender di atas tiap metrik.
 fn describe() {
     ::metrics::describe_gauge!(START_TIME, "Waktu server mulai (unix detik)");
+    ::metrics::describe_gauge!(WS_CLIENTS, "Klien WebSocket yang sedang tersambung");
+    ::metrics::describe_counter!(FINNHUB_TRADES, "Trade yang masuk dari Finnhub");
+    ::metrics::describe_gauge!(
+        LAST_TRADE,
+        "Kapan trade terakhir masuk (unix detik); tertinggal jauh saat pasar buka = feed macet"
+    );
+    ::metrics::describe_counter!(
+        FINNHUB_CONNECTS,
+        "Sesi WebSocket Finnhub yang berhasil dibuka; lebih dari 1 = pernah reconnect"
+    );
     ::metrics::describe_counter!(CACHE_REQUESTS, "Pencarian cache per cache, hit atau miss");
     ::metrics::describe_counter!(
         FINNHUB_REQUESTS,
@@ -73,6 +87,34 @@ fn unix_now() -> f64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs_f64())
         .unwrap_or_default()
+}
+
+/// `count` trade baru masuk dari Finnhub.
+pub fn trades_received(count: usize) {
+    ::metrics::counter!(FINNHUB_TRADES).increment(count as u64);
+    ::metrics::gauge!(LAST_TRADE).set(unix_now());
+}
+
+/// Sesi WebSocket ke Finnhub baru saja terbuka.
+pub fn finnhub_connected() {
+    ::metrics::counter!(FINNHUB_CONNECTS).increment(1);
+}
+
+/// Satu klien WebSocket yang tersambung. Hitungannya turun lagi saat nilai ini di-drop,
+/// jadi apa pun cara task klien berakhir (ditutup browser, error, shutdown), angkanya benar.
+pub struct WsClient(());
+
+impl WsClient {
+    pub fn connected() -> Self {
+        ::metrics::gauge!(WS_CLIENTS).increment(1.0);
+        Self(())
+    }
+}
+
+impl Drop for WsClient {
+    fn drop(&mut self) {
+        ::metrics::gauge!(WS_CLIENTS).decrement(1.0);
+    }
 }
 
 /// Satu pencarian di cache `cache` (`quote`, `profile`, `market_status`, `news`, `symbols`).
@@ -143,23 +185,17 @@ pub async fn render(_: Admin, State(state): State<AppState>) -> impl IntoRespons
 }
 
 /// Alat test: tangkap metrik yang dicatat selama satu test, lalu baca nilainya.
+///
+/// Memakai recorder Prometheus yang sama dengan production dan membaca teks hasil render,
+/// jadi yang diuji persis yang dilihat pemilik di `/metrics`. Render nggak mengosongkan
+/// nilai, jadi boleh dibaca berkali-kali.
 #[cfg(test)]
 pub mod testing {
-    use std::{cell::RefCell, collections::HashMap};
-
-    use metrics_util::{
-        MetricKind,
-        debugging::{DebugValue, DebuggingRecorder, Snapshotter},
-    };
-
-    /// (jenis, nama, label terurut): identitas satu deret metrik.
-    type SeriesKey = (MetricKind, String, Vec<(String, String)>);
+    use metrics_exporter_prometheus::{PrometheusHandle, PrometheusRecorder};
 
     /// Metrik yang tertangkap sejak `capture()` sampai nilai ini di-drop.
     pub struct Captured {
-        snapshotter: Snapshotter,
-        /// `snapshot()` mengosongkan recorder, jadi hasil tiap snapshot dikumpulkan di sini.
-        seen: RefCell<HashMap<SeriesKey, DebugValue>>,
+        handle: PrometheusHandle,
         _guard: ::metrics::LocalRecorderGuard<'static>,
     }
 
@@ -168,69 +204,50 @@ pub mod testing {
     /// sementara test lain yang jalan paralel di thread lain nggak.
     pub fn capture() -> Captured {
         // Dibocorkan supaya bisa dipinjam `'static` oleh guard; cuma di test, ukurannya kecil.
-        let recorder: &'static DebuggingRecorder = Box::leak(Box::new(DebuggingRecorder::new()));
+        let recorder: &'static PrometheusRecorder =
+            Box::leak(Box::new(super::builder().build_recorder()));
         Captured {
-            snapshotter: recorder.snapshotter(),
-            seen: RefCell::default(),
+            handle: recorder.handle(),
             _guard: ::metrics::set_default_local_recorder(recorder),
         }
     }
 
-    fn series<'a>(
-        kind: MetricKind,
-        name: &str,
-        labels: impl Iterator<Item = (&'a str, &'a str)>,
-    ) -> SeriesKey {
-        let mut labels: Vec<_> = labels
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect();
-        labels.sort_unstable();
-        (kind, name.to_string(), labels)
-    }
-
     impl Captured {
-        fn find<T>(
-            &self,
-            kind: MetricKind,
-            name: &str,
-            labels: &[(&str, &str)],
-            read: impl FnOnce(&DebugValue) -> T,
-        ) -> Option<T> {
-            let mut seen = self.seen.borrow_mut();
-            for (key, _, _, value) in self.snapshotter.snapshot().into_vec() {
-                let labels = key.key().labels().map(|l| (l.key(), l.value()));
-                let id = series(key.kind(), key.key().name(), labels);
-                // Counter dan histogram dijumlahkan dengan yang sudah terlihat; gauge diganti.
-                let merged = match (seen.remove(&id), value) {
-                    (Some(DebugValue::Counter(a)), DebugValue::Counter(b)) => {
-                        DebugValue::Counter(a + b)
-                    }
-                    (Some(DebugValue::Histogram(mut a)), DebugValue::Histogram(b)) => {
-                        a.extend(b);
-                        DebugValue::Histogram(a)
-                    }
-                    (_, value) => value,
+        /// Nilai baris `name{labels} value` di hasil render; `None` kalau belum ada.
+        fn value(&self, name: &str, labels: &[(&str, &str)]) -> Option<f64> {
+            let mut expected: Vec<String> =
+                labels.iter().map(|(k, v)| format!("{k}=\"{v}\"")).collect();
+            expected.sort_unstable();
+            self.handle.render().lines().find_map(|line| {
+                if line.starts_with('#') {
+                    return None;
+                }
+                let (series, value) = line.rsplit_once(' ')?;
+                let (series_name, series_labels) = match series.split_once('{') {
+                    Some((n, rest)) => (n, rest.trim_end_matches('}')),
+                    None => (series, ""),
                 };
-                seen.insert(id, merged);
-            }
-            seen.get(&series(kind, name, labels.iter().copied()))
-                .map(read)
+                let mut actual: Vec<String> = series_labels
+                    .split(',')
+                    .filter(|l| !l.is_empty())
+                    .map(str::to_string)
+                    .collect();
+                actual.sort_unstable();
+                (series_name == name && actual == expected).then(|| value.parse().unwrap())
+            })
         }
 
         pub fn counter(&self, name: &str, labels: &[(&str, &str)]) -> u64 {
-            self.find(MetricKind::Counter, name, labels, |value| match value {
-                DebugValue::Counter(n) => *n,
-                _ => 0,
-            })
-            .unwrap_or(0)
+            self.value(name, labels).unwrap_or(0.0) as u64
         }
 
+        pub fn gauge(&self, name: &str, labels: &[(&str, &str)]) -> f64 {
+            self.value(name, labels).unwrap_or(0.0)
+        }
+
+        /// Jumlah sampel histogram (`<name>_count`).
         pub fn histogram_len(&self, name: &str, labels: &[(&str, &str)]) -> usize {
-            self.find(MetricKind::Histogram, name, labels, |value| match value {
-                DebugValue::Histogram(samples) => samples.len(),
-                _ => 0,
-            })
-            .unwrap_or(0)
+            self.value(&format!("{name}_count"), labels).unwrap_or(0.0) as usize
         }
     }
 }

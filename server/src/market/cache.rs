@@ -3,11 +3,13 @@ use std::{sync::Arc, time::Duration};
 use async_trait::async_trait;
 use moka::future::Cache;
 
-use super::{MarketDataSource, MarketError, MarketStatus, Profile, Quote};
+use super::{MarketDataSource, MarketError, MarketStatus, Profile, Quote, SymbolInfo};
 
 const QUOTE_TTL: Duration = Duration::from_secs(15);
 const PROFILE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const STATUS_TTL: Duration = Duration::from_secs(60);
+/// Daftar simbol bursa jarang berubah, dan mengambilnya berat (±7 MB dari Finnhub).
+const SYMBOLS_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const MAX_ENTRIES: u64 = 1_000;
 
 /// Decorator: implement trait yang sama dengan sumber aslinya, tapi menyimpan hasil sukses
@@ -19,6 +21,7 @@ pub struct MarketCache {
     quotes: Cache<String, Quote>,
     profiles: Cache<String, Profile>,
     status: Cache<(), MarketStatus>,
+    symbols: Cache<(), Arc<[SymbolInfo]>>,
 }
 
 impl MarketCache {
@@ -34,6 +37,7 @@ impl MarketCache {
                 .time_to_live(PROFILE_TTL)
                 .build(),
             status: Cache::builder().time_to_live(STATUS_TTL).build(),
+            symbols: Cache::builder().time_to_live(SYMBOLS_TTL).build(),
         }
     }
 }
@@ -59,6 +63,14 @@ impl MarketDataSource for MarketCache {
     async fn market_status(&self) -> Result<MarketStatus, MarketError> {
         self.status
             .try_get_with((), self.source.market_status())
+            .await
+            .map_err(Arc::unwrap_or_clone)
+    }
+
+    /// Yang di-cache `Arc`-nya: cache hit cuma menambah reference count.
+    async fn us_symbols(&self) -> Result<Arc<[SymbolInfo]>, MarketError> {
+        self.symbols
+            .try_get_with((), self.source.us_symbols())
             .await
             .map_err(Arc::unwrap_or_clone)
     }
@@ -115,6 +127,11 @@ mod tests {
                 session: Some("regular".to_string()),
             })
         }
+
+        async fn us_symbols(&self) -> Result<Arc<[SymbolInfo]>, MarketError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(Arc::new([]))
+        }
     }
 
     fn setup() -> (Arc<CountingSource>, MarketCache) {
@@ -131,8 +148,14 @@ mod tests {
         cache.quote("AAPL").await.unwrap();
         cache.market_status().await.unwrap();
         cache.market_status().await.unwrap();
+        cache.us_symbols().await.unwrap();
+        cache.us_symbols().await.unwrap();
 
-        assert_eq!(source.calls(), 2, "1x quote AAPL + 1x market status");
+        assert_eq!(
+            source.calls(),
+            3,
+            "1x quote AAPL + 1x market status + 1x daftar simbol"
+        );
     }
 
     #[tokio::test]

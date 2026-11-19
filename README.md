@@ -22,7 +22,7 @@ cargo run                     # http://localhost:8080
 ```
 
 Cek: `curl http://localhost:8080/health` → `ok`.
-Endpoint: `/api/quote?symbol=NVDA`, `/api/profile?symbol=NVDA`, `/api/market-status`,
+Endpoint: `/api/quote?symbol=NVDA`, `/api/profile?symbol=NVDA`, `/api/market-status`, `/api/symbols`,
 `GET/POST /api/watchlist` (body `{"symbol":"AMD"}`), `DELETE /api/watchlist/{symbol}`,
 WebSocket `/ws` (kirim `{"type":"subscribe","symbol":"AAPL"}`). Semua error berbentuk `{"error":"..."}`.
 

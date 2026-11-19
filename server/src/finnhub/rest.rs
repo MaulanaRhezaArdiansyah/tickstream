@@ -1,12 +1,15 @@
-use std::{num::NonZeroU32, time::Duration};
+use std::{num::NonZeroU32, sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use governor::{DefaultDirectRateLimiter, Quota, RateLimiter};
 use reqwest::{StatusCode, header::HeaderValue};
 use secrecy::{ExposeSecret, SecretString};
-use serde::de::DeserializeOwned;
+use serde::{Deserialize, de::DeserializeOwned};
 
-use crate::market::{MarketDataSource, MarketError, MarketStatus, Profile, Quote};
+use crate::market::{
+    MarketDataSource, MarketError, MarketStatus, Profile, Quote, SymbolInfo, SymbolKind,
+    normalize_symbol,
+};
 
 const BASE_URL: &str = "https://finnhub.io/api/v1";
 
@@ -17,6 +20,11 @@ const QUOTA: Quota =
 
 /// Batas antre nunggu jatah limiter sebelum request dibalas 429.
 const MAX_WAIT: Duration = Duration::from_secs(2);
+
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Daftar simbol US ±7 MB; di jaringan biasa butuh ±5 detik.
+const SYMBOL_LIST_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Client REST Finnhub. Satu instance dipakai bareng semua request (lewat `Arc` di `AppState`),
 /// jadi limiter-nya berlaku global untuk seluruh server.
@@ -32,9 +40,7 @@ impl FinnhubRest {
         let mut token = HeaderValue::from_str(api_key.expose_secret())?;
         token.set_sensitive(true);
 
-        let http = reqwest::Client::builder()
-            .timeout(Duration::from_secs(10))
-            .build()?;
+        let http = reqwest::Client::builder().build()?;
 
         Ok(Self {
             http,
@@ -43,12 +49,21 @@ impl FinnhubRest {
         })
     }
 
-    /// GET ke Finnhub lalu parse JSON jadi `T`: tunggu jatah limiter, kirim,
-    /// terjemahkan status HTTP ke `MarketError`. Tipe `T` ditentukan pemanggil.
     async fn get_json<T: DeserializeOwned>(
         &self,
         path: &str,
         query: &[(&str, &str)],
+    ) -> Result<T, MarketError> {
+        self.get_json_within(path, query, REQUEST_TIMEOUT).await
+    }
+
+    /// GET ke Finnhub lalu parse JSON jadi `T`: tunggu jatah limiter, kirim,
+    /// terjemahkan status HTTP ke `MarketError`. Tipe `T` ditentukan pemanggil.
+    async fn get_json_within<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        query: &[(&str, &str)],
+        timeout: Duration,
     ) -> Result<T, MarketError> {
         tokio::time::timeout(MAX_WAIT, self.limiter.until_ready())
             .await
@@ -60,6 +75,7 @@ impl FinnhubRest {
             .get(format!("{BASE_URL}{path}"))
             .query(query)
             .header("X-Finnhub-Token", self.token.clone())
+            .timeout(timeout)
             .send()
             .await
             .map_err(|e| MarketError::Upstream(e.to_string()))?;
@@ -106,5 +122,101 @@ impl MarketDataSource for FinnhubRest {
     async fn market_status(&self) -> Result<MarketStatus, MarketError> {
         self.get_json("/stock/market-status", &[("exchange", "US")])
             .await
+    }
+
+    async fn us_symbols(&self) -> Result<Arc<[SymbolInfo]>, MarketError> {
+        // Finnhub membalas 302 ke file statis di static2.finnhub.io; reqwest mengikutinya
+        // sendiri (header token ikut terkirim, tapi host-nya tetap milik Finnhub).
+        let raw: Vec<RawSymbol> = self
+            .get_json_within("/stock/symbol", &[("exchange", "US")], SYMBOL_LIST_TIMEOUT)
+            .await?;
+        let total = raw.len();
+
+        let mut symbols: Vec<SymbolInfo> =
+            raw.into_iter().filter_map(RawSymbol::into_info).collect();
+        symbols.sort_unstable_by(|a, b| a.symbol.cmp(&b.symbol));
+
+        tracing::info!(total, kept = symbols.len(), "daftar simbol US dimuat");
+        // Vec → Arc<[T]>: satu alokasi yang dibagi semua request, nggak pernah disalin.
+        Ok(symbols.into())
+    }
+}
+
+/// Satu baris `/stock/symbol`. Field lain (figi, isin, currency, ...) diabaikan serde,
+/// jadi nggak ikut dialokasikan.
+#[derive(Deserialize)]
+struct RawSymbol {
+    symbol: String,
+    description: String,
+    /// Kode bursa (ISO 10383), mis. "XNAS" untuk Nasdaq.
+    mic: String,
+    #[serde(rename = "type")]
+    kind: String,
+}
+
+/// Nasdaq, NYSE, NYSE Arca, Cboe BZX, NYSE American. Di luar ini kebanyakan OTC
+/// (±17 ribu dari 31 ribu simbol): nggak likuid dan jarang ada di stream trade.
+const MAIN_EXCHANGES: &[&str] = &["XNAS", "XNYS", "ARCX", "BATS", "XASE"];
+
+impl RawSymbol {
+    /// `None` untuk yang nggak layak masuk watchlist: OTC, warrant, unit, right, dsb.
+    fn into_info(self) -> Option<SymbolInfo> {
+        if !MAIN_EXCHANGES.contains(&self.mic.as_str()) {
+            return None;
+        }
+        let kind = match self.kind.as_str() {
+            "Common Stock" | "ADR" | "REIT" => SymbolKind::Stock,
+            "ETP" => SymbolKind::Etf,
+            _ => return None,
+        };
+        // Pastikan simbolnya memang bisa ditambahkan lewat POST /api/watchlist.
+        normalize_symbol(&self.symbol).filter(|s| *s == self.symbol)?;
+        Some(SymbolInfo {
+            symbol: self.symbol,
+            name: self.description,
+            kind,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn raw(symbol: &str, mic: &str, kind: &str) -> RawSymbol {
+        RawSymbol {
+            symbol: symbol.into(),
+            description: format!("{symbol} CORP"),
+            mic: mic.into(),
+            kind: kind.into(),
+        }
+    }
+
+    #[test]
+    fn keeps_stocks_and_etfs_on_main_exchanges() {
+        let kept = |r: RawSymbol| r.into_info().map(|info| info.kind);
+        assert_eq!(
+            kept(raw("AAPL", "XNAS", "Common Stock")),
+            Some(SymbolKind::Stock)
+        );
+        assert_eq!(kept(raw("TSM", "XNYS", "ADR")), Some(SymbolKind::Stock));
+        assert_eq!(
+            kept(raw("BRK.B", "XNYS", "Common Stock")),
+            Some(SymbolKind::Stock)
+        );
+        assert_eq!(kept(raw("SPY", "ARCX", "ETP")), Some(SymbolKind::Etf));
+    }
+
+    #[test]
+    fn drops_otc_and_odd_instruments() {
+        for r in [
+            raw("FMOO", "OOTC", "Common Stock"), // OTC
+            raw("ABCW", "XNAS", "Equity WRT"),   // warrant
+            raw("ABCU", "XNAS", "Unit"),
+            raw("ab c", "XNAS", "Common Stock"), // simbol yang ditolak normalize_symbol
+        ] {
+            let symbol = r.symbol.clone();
+            assert!(r.into_info().is_none(), "harusnya dibuang: {symbol}");
+        }
     }
 }

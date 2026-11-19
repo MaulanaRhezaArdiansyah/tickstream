@@ -10,6 +10,7 @@ use axum::{
     Router,
     routing::{delete, get, post},
 };
+use tower_http::compression::CompressionLayer;
 
 use crate::{error::AppError, state::AppState};
 
@@ -19,6 +20,12 @@ pub fn router(state: AppState) -> Router {
         .route("/api/quote", get(market::quote))
         .route("/api/profile", get(market::profile))
         .route("/api/market-status", get(market::market_status))
+        // ±11 ribu baris (±800 KB JSON); gzip memangkasnya jadi sekitar seperlimanya.
+        // Layer dipasang di route ini saja: response lain kecil, nggak perlu dikompres.
+        .route(
+            "/api/symbols",
+            get(market::symbols).layer(CompressionLayer::new()),
+        )
         .route("/api/watchlist", get(watchlist::list).post(watchlist::add))
         .route("/api/watchlist/{symbol}", delete(watchlist::remove))
         .route("/ws", get(ws::ws))

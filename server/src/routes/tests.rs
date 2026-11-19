@@ -22,7 +22,10 @@ use tower::ServiceExt;
 
 use crate::{
     hub::Hub,
-    market::{MarketDataSource, MarketError, MarketStatus, Profile, Quote, TradeFeed},
+    market::{
+        MarketDataSource, MarketError, MarketStatus, Profile, Quote, SymbolInfo, SymbolKind,
+        TradeFeed,
+    },
     state::AppState,
 };
 
@@ -58,6 +61,21 @@ impl MarketDataSource for FakeMarket {
             is_open: false,
             session: None,
         })
+    }
+
+    async fn us_symbols(&self) -> Result<Arc<[SymbolInfo]>, MarketError> {
+        Ok(Arc::new([
+            SymbolInfo {
+                symbol: "AAPL".into(),
+                name: "APPLE INC".into(),
+                kind: SymbolKind::Stock,
+            },
+            SymbolInfo {
+                symbol: "SPY".into(),
+                name: "SPDR S&P 500 ETF".into(),
+                kind: SymbolKind::Etf,
+            },
+        ]))
     }
 }
 
@@ -199,6 +217,34 @@ async fn unknown_route_is_json_404(db: PgPool) {
     let (status, body) = call(&app(db), "GET", "/api/nggak-ada", None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert!(body["error"].is_string());
+}
+
+// ---- daftar simbol ----
+
+#[sqlx::test]
+async fn lists_symbols_with_cache_header(db: PgPool) {
+    let (status, body) = call(&app(db), "GET", "/api/symbols", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body,
+        json!([
+            {"symbol": "AAPL", "name": "APPLE INC", "kind": "stock"},
+            {"symbol": "SPY", "name": "SPDR S&P 500 ETF", "kind": "etf"},
+        ])
+    );
+}
+
+#[sqlx::test]
+async fn symbols_are_gzipped_and_cacheable(db: PgPool) {
+    let request = Request::builder()
+        .uri("/api/symbols")
+        .header(header::ACCEPT_ENCODING, "gzip")
+        .body(Body::empty())
+        .unwrap();
+    let response = app(db).oneshot(request).await.unwrap();
+    let headers = response.headers();
+    assert_eq!(headers[header::CONTENT_ENCODING], "gzip");
+    assert_eq!(headers[header::CACHE_CONTROL], "public, max-age=3600");
 }
 
 // ---- webhook ----

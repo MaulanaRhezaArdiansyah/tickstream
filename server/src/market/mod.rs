@@ -5,6 +5,8 @@ mod cache;
 
 pub use cache::MarketCache;
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
@@ -42,6 +44,23 @@ pub struct MarketStatus {
     pub is_open: bool,
     /// `"pre-market"`, `"regular"`, `"post-market"`, atau `null` saat tutup.
     pub session: Option<String>,
+}
+
+/// Satu simbol yang bisa ditambahkan ke watchlist (dari daftar bursa US).
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct SymbolInfo {
+    pub symbol: String,
+    /// Nama versi bursa, huruf besar semua (mis. "APPLE INC").
+    pub name: String,
+    pub kind: SymbolKind,
+}
+
+/// ADR dan REIT ikut `Stock`: bagi pemakai dashboard, keduanya "saham".
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SymbolKind {
+    Stock,
+    Etf,
 }
 
 /// Satu transaksi dari stream real-time. Seperti `Quote`: nama pendek Finnhub waktu
@@ -106,6 +125,9 @@ pub trait MarketDataSource: Send + Sync {
     async fn quote(&self, symbol: &str) -> Result<Quote, MarketError>;
     async fn profile(&self, symbol: &str) -> Result<Profile, MarketError>;
     async fn market_status(&self) -> Result<MarketStatus, MarketError>;
+    /// Saham dan ETF di bursa utama US, urut simbol. `Arc<[T]>`: daftarnya ribuan baris
+    /// dan dibagi ke semua request tanpa disalin.
+    async fn us_symbols(&self) -> Result<Arc<[SymbolInfo]>, MarketError>;
 }
 
 #[cfg(test)]

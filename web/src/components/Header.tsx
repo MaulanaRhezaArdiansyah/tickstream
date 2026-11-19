@@ -2,6 +2,7 @@ import { memo } from 'react'
 
 import type { ConnectionState } from '../hooks/useLiveTicks'
 import { Clock } from './Clock'
+import { Logo } from './Logo'
 
 interface HeaderProps {
   connection: ConnectionState
@@ -19,7 +20,10 @@ export const Header = memo(function Header({ connection, ticksPerSecond }: Heade
   return (
     <header className="topbar">
       <div className="page">
-        <div className="brand">Tickstream</div>
+        <div className="brand">
+          <Logo />
+          Tickstream
+        </div>
         <div className="topbar-meta">
           <Clock />
           <span className="conn">

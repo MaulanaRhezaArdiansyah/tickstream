@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
-import { ApiError, fetchProfile, fetchQuote } from '../api/client'
+import { errorMessage, fetchProfile, fetchQuote } from '../api/client'
 import { runPool } from '../lib/pool'
 import type { Quote } from '../types'
 
@@ -17,24 +17,33 @@ const CONCURRENCY = 3
 /**
  * Ambil quote + nama perusahaan untuk tiap simbol dari REST.
  *
- * `symbols` harus referensi yang stabil (konstanta atau hasil `useMemo`): effect ini
- * jalan ulang tiap kali referensi array-nya berubah, bukan isinya.
+ * Saat `symbols` berubah, cuma simbol yang BELUM pernah dimuat yang diambil; menambah satu
+ * simbol nggak memuat ulang semuanya. `symbols` harus referensi yang stabil.
  */
 export function useStockSnapshots(symbols: readonly string[]): Record<string, Snapshot> {
   const [snapshots, setSnapshots] = useState<Record<string, Snapshot>>({})
+  // Simbol yang sedang/sudah dimuat. Ref, bukan state: mengubahnya nggak perlu render.
+  const requested = useRef(new Set<string>())
 
   useEffect(() => {
     const controller = new AbortController()
     const { signal } = controller
+    const inFlight = requested.current // Set yang sama seumur komponen
+    const fresh = symbols.filter((symbol) => !inFlight.has(symbol))
+    const done = new Set<string>()
+    for (const symbol of fresh) inFlight.add(symbol)
 
     // Functional update: selalu berangkat dari state terbaru, karena banyak request
     // selesai bergantian dan masing-masing cuma mengubah satu simbol.
     const patch = (symbol: string, data: Partial<Snapshot>) =>
-      setSnapshots((prev) => ({ ...prev, [symbol]: { ...prev[symbol], ...data } }))
+      setSnapshots((prev) => ({
+        ...prev,
+        [symbol]: { ...prev[symbol], ...data },
+      }))
 
     async function load() {
       // Harga dulu untuk semua simbol, baru nama: angka di kartu muncul lebih cepat.
-      await runPool(symbols, CONCURRENCY, async (symbol) => {
+      await runPool(fresh, CONCURRENCY, async (symbol) => {
         if (signal.aborted) return
         try {
           const quote = await fetchQuote(symbol, signal)
@@ -44,7 +53,7 @@ export function useStockSnapshots(symbols: readonly string[]): Record<string, Sn
         }
       })
 
-      await runPool(symbols, CONCURRENCY, async (symbol) => {
+      await runPool(fresh, CONCURRENCY, async (symbol) => {
         if (signal.aborted) return
         try {
           const profile = await fetchProfile(symbol, signal)
@@ -52,17 +61,18 @@ export function useStockSnapshots(symbols: readonly string[]): Record<string, Sn
         } catch {
           // Nama cuma pelengkap; kartu tetap jalan tanpa nama.
         }
+        if (!signal.aborted) done.add(symbol)
       })
     }
 
     void load()
-    // Cleanup: dipanggil saat komponen unmount atau sebelum effect jalan ulang.
-    return () => controller.abort()
+    return () => {
+      controller.abort()
+      // Yang terpotong di tengah jalan dilepas lagi, supaya putaran effect berikutnya
+      // (atau mount kedua di StrictMode) memuatnya ulang.
+      for (const symbol of fresh) if (!done.has(symbol)) inFlight.delete(symbol)
+    }
   }, [symbols])
 
   return snapshots
-}
-
-function errorMessage(err: unknown): string {
-  return err instanceof ApiError ? err.message : 'gagal memuat'
 }

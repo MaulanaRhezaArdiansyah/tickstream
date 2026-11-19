@@ -12,13 +12,20 @@ interface StockCardProps {
   symbol: string
   snapshot: Snapshot | undefined
   live: LiveTick | undefined
+  /** Harus fungsi yang stabil (useCallback), kalau nggak `memo` jadi percuma. */
+  onRemove: (symbol: string) => void
 }
 
 /**
  * `memo`: kartu cuma dirender ulang kalau props-nya berubah (dibandingkan per referensi).
  * Tick BTC 60×/detik nggak ikut membuat kartu AAPL dirender ulang.
  */
-export const StockCard = memo(function StockCard({ symbol, snapshot, live }: StockCardProps) {
+export const StockCard = memo(function StockCard({
+  symbol,
+  snapshot,
+  live,
+  onRemove,
+}: StockCardProps) {
   const quote = snapshot?.quote
   // Harga live menimpa harga quote; perubahan tetap dihitung dari prev close harian.
   const price = live?.price ?? quote?.price
@@ -50,6 +57,15 @@ export const StockCard = memo(function StockCard({ symbol, snapshot, live }: Sto
           <div className="sym">{symbol}</div>
           <div className="name">{snapshot?.name ?? ' '}</div>
         </div>
+        <button
+          className="x"
+          type="button"
+          title={`Hapus ${symbol}`}
+          aria-label={`Hapus ${symbol}`}
+          onClick={() => onRemove(symbol)}
+        >
+          ✕
+        </button>
       </div>
 
       <div className="price">{price != null ? `$${fmt(price)}` : '–'}</div>

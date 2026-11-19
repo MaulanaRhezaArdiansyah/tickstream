@@ -10,14 +10,34 @@ export class ApiError extends Error {
   }
 }
 
+/** Pesan yang layak ditampilkan ke user dari error apa pun. */
+export function errorMessage(err: unknown): string {
+  return err instanceof ApiError ? err.message : 'gagal menghubungi server'
+}
+
 // Server membalas 429 kalau antrean limiter Finnhub penuh; biasanya lega lagi dalam 1-2 detik.
 const RETRY_DELAY_MS = 2000
 const MAX_RETRIES = 5
 
-async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
+interface RequestOptions {
+  method?: 'GET' | 'POST' | 'DELETE'
+  body?: unknown
+  signal?: AbortSignal
+}
+
+async function request<T>(path: string, { method = 'GET', body, signal }: RequestOptions = {}) {
+  const init: RequestInit = { method, signal }
+  if (body !== undefined) {
+    init.body = JSON.stringify(body)
+    init.headers = { 'Content-Type': 'application/json' }
+  }
+
   for (let attempt = 0; ; attempt++) {
-    const res = await fetch(path, { signal })
-    if (res.ok) return (await res.json()) as T
+    const res = await fetch(path, init)
+    if (res.ok) {
+      // 204 No Content nggak punya body untuk di-parse.
+      return (res.status === 204 ? undefined : await res.json()) as T
+    }
 
     if (res.status === 429 && attempt < MAX_RETRIES) {
       await sleep(RETRY_DELAY_MS, signal)
@@ -25,8 +45,10 @@ async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
     }
 
     // Error dari server kita berbentuk {"error": "..."}; selain itu pakai status HTTP.
-    const body = (await res.json().catch(() => null)) as { error?: string } | null
-    throw new ApiError(res.status, body?.error ?? `HTTP ${res.status}`)
+    const errorBody = (await res.json().catch(() => null)) as {
+      error?: string
+    } | null
+    throw new ApiError(res.status, errorBody?.error ?? `HTTP ${res.status}`)
   }
 }
 
@@ -48,10 +70,22 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 const symbolParam = (symbol: string) => `symbol=${encodeURIComponent(symbol)}`
 
 export const fetchQuote = (symbol: string, signal?: AbortSignal) =>
-  getJson<Quote>(`/api/quote?${symbolParam(symbol)}`, signal)
+  request<Quote>(`/api/quote?${symbolParam(symbol)}`, { signal })
 
 export const fetchProfile = (symbol: string, signal?: AbortSignal) =>
-  getJson<Profile>(`/api/profile?${symbolParam(symbol)}`, signal)
+  request<Profile>(`/api/profile?${symbolParam(symbol)}`, { signal })
 
 export const fetchMarketStatus = (signal?: AbortSignal) =>
-  getJson<MarketStatus>('/api/market-status', signal)
+  request<MarketStatus>('/api/market-status', { signal })
+
+export const fetchWatchlist = (signal?: AbortSignal) =>
+  request<string[]>('/api/watchlist', { signal })
+
+/** Mengembalikan simbol yang sudah dinormalisasi server (mis. "nvda" → "NVDA"). */
+export const addToWatchlist = (symbol: string) =>
+  request<string>('/api/watchlist', { method: 'POST', body: { symbol } })
+
+export const removeFromWatchlist = (symbol: string) =>
+  request<void>(`/api/watchlist/${encodeURIComponent(symbol)}`, {
+    method: 'DELETE',
+  })

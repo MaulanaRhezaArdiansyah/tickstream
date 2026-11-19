@@ -1,4 +1,4 @@
-import type { MarketStatus, Profile, Quote } from '../types'
+import type { MarketStatus, Profile, Quote, SymbolInfo } from '../types'
 
 export class ApiError extends Error {
   readonly status: number
@@ -77,6 +77,9 @@ export const fetchProfile = (symbol: string, signal?: AbortSignal) =>
 
 export const fetchMarketStatus = (signal?: AbortSignal) =>
   request<MarketStatus>('/api/market-status', { signal })
+
+export const fetchSymbols = (signal?: AbortSignal) =>
+  request<SymbolInfo[]>('/api/symbols', { signal })
 
 export const fetchWatchlist = (signal?: AbortSignal) =>
   request<string[]>('/api/watchlist', { signal })

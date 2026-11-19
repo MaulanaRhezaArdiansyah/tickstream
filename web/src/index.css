@@ -146,18 +146,16 @@ main {
 }
 
 .field {
-  width: 150px;
+  width: 240px;
   height: 44px;
   padding: 0 12px;
   background: var(--surface);
   border: 1px solid var(--field-line);
   border-radius: 6px;
-  text-transform: uppercase;
 }
 
 .field::placeholder {
   color: #8e9893;
-  text-transform: none;
 }
 
 .btn {
@@ -574,5 +572,102 @@ main {
   .session-note,
   .session-label .word {
     display: none;
+  }
+}
+
+/* ---------- Saran simbol (combobox) ---------- */
+
+.combo {
+  position: relative;
+}
+
+/* Rata kanan dengan input: form-nya ada di sisi kanan header, jadi daftar melebar ke kiri. */
+.combo-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 10;
+  width: min(440px, calc(100vw - 32px));
+  background: var(--surface);
+  border: 1px solid var(--field-line);
+  border-radius: 6px;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.45);
+}
+
+.combo-pop[hidden] {
+  display: none;
+}
+
+.combo-list {
+  max-height: 340px;
+  margin: 0;
+  padding: 4px 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.combo-list:empty {
+  display: none;
+}
+
+.combo-opt {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: baseline;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.combo-opt[aria-selected='true'] {
+  background: var(--track);
+}
+
+.combo-opt[aria-disabled='true'] {
+  cursor: default;
+  color: var(--muted);
+}
+
+.combo-symbol {
+  font-weight: 600;
+}
+
+.combo-name {
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.combo-tag {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.combo-note {
+  margin: 0;
+  padding: 10px 12px;
+  border-top: 1px solid var(--line-soft);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.combo-list:empty + .combo-note {
+  border-top: 0;
+}
+
+@media (max-width: 560px) {
+  .combo {
+    flex: 1;
+  }
+
+  .combo .field {
+    width: 100%;
+  }
+
+  .combo-pop {
+    left: 0;
+    right: auto;
   }
 }

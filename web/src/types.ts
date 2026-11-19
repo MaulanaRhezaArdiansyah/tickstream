@@ -15,6 +15,14 @@ export interface Profile {
   name: string
 }
 
+/** Satu simbol dari `/api/symbols` (lihat `SymbolInfo` di server). */
+export interface SymbolInfo {
+  symbol: string
+  /** Nama versi bursa, huruf besar semua (mis. "APPLE INC"). */
+  name: string
+  kind: 'stock' | 'etf'
+}
+
 export interface MarketStatus {
   isOpen: boolean
   /** "pre-market" | "regular" | "post-market", atau null saat tutup. */
@@ -32,5 +40,4 @@ export interface Trade {
 
 /** Pesan dari `/ws` (lihat `ServerMessage` di server/src/routes/ws.rs). */
 export type ServerMessage =
-  | { type: 'trades'; data: Trade[] }
-  | { type: 'error'; symbol: string | null; message: string }
+  { type: 'trades'; data: Trade[] } | { type: 'error'; symbol: string | null; message: string }

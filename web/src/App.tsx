@@ -60,7 +60,7 @@ export function App() {
               </span>
             )}
           </h1>
-          <AddSymbolForm onAdd={watchlist.add} onError={push} />
+          <AddSymbolForm onAdd={watchlist.add} onError={push} watched={symbols} />
         </div>
         {content}
         <p className="footnote">

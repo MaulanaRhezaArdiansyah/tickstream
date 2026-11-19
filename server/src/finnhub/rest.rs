@@ -27,6 +27,10 @@ const QUOTA: Quota =
 const NEWS_QUOTA: Quota =
     Quota::per_minute(NonZeroU32::new(20).unwrap()).allow_burst(NonZeroU32::new(5).unwrap());
 
+/// Batas tunggu jatah berita. Lebih panjang dari jeda isi ulangnya (60 s / 20 = 3 s), supaya
+/// request berita berikutnya setelah lonjakan habis dapat slot, bukan 429.
+const NEWS_MAX_WAIT: Duration = Duration::from_secs(4);
+
 /// Rentang berita yang diminta ke Finnhub.
 const NEWS_DAYS: i64 = 7;
 
@@ -65,7 +69,7 @@ impl FinnhubRest {
 
     /// Ambil jatah berita dulu; jatah global diambil `get_json` sesudahnya.
     async fn acquire_news(&self) -> Result<(), MarketError> {
-        tokio::time::timeout(MAX_WAIT, self.news_limiter.until_ready())
+        tokio::time::timeout(NEWS_MAX_WAIT, self.news_limiter.until_ready())
             .await
             .map_err(|_| MarketError::RateLimited)
     }
@@ -230,18 +234,25 @@ fn safe_logo(url: Option<String>) -> Option<String> {
 mod tests {
     use super::*;
 
-    /// Jatah berita terpisah dari jatah global: lonjakan 5, lalu ditolak (setelah menunggu
-    /// `MAX_WAIT`), supaya berita nggak pernah menghabiskan jatah quote dan profil.
+    /// Setelah lonjakan 5, jatah berita terisi satu tiap 3 detik. Browser meminta berita satu
+    /// per satu, jadi request berikutnya harus sempat menunggu slot itu (bukan 429), tapi
+    /// tiga request bersamaan tetap cuma dapat satu slot; sisanya ditolak.
     #[tokio::test]
-    async fn news_limiter_allows_a_burst_of_5_then_rejects() {
+    async fn news_limiter_waits_for_the_next_slot_after_the_burst() {
         let rest = FinnhubRest::new(&SecretString::from("test")).unwrap();
         for _ in 0..5 {
             rest.acquire_news().await.unwrap();
         }
-        assert!(matches!(
-            rest.acquire_news().await,
-            Err(MarketError::RateLimited)
-        ));
+        let (a, b, c) = tokio::join!(
+            rest.acquire_news(),
+            rest.acquire_news(),
+            rest.acquire_news()
+        );
+        let granted = [a, b, c].iter().filter(|r| r.is_ok()).count();
+        assert_eq!(
+            granted, 1,
+            "satu slot terisi dalam waktu tunggu, dua ditolak"
+        );
     }
 
     #[test]

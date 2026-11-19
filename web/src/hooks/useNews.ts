@@ -60,21 +60,31 @@ export function useNews(symbols: readonly string[], ready: boolean) {
     const controller = new AbortController()
     const { signal } = controller
 
+    // Set yang sama seumur komponen; disalin supaya cleanup memakai objek yang sama.
+    const fetched = fetchedIn.current
+    // Simbol yang sedang diambil antrean ini.
+    let current: string | null = null
+
     async function drain() {
       for (const symbol of symbols) {
         if (signal.aborted) return
-        if (fetchedIn.current.get(symbol) === round) continue
-        fetchedIn.current.set(symbol, round)
+        if (fetched.get(symbol) === round) continue
+        fetched.set(symbol, round)
         // Berita lama tetap tampil selama diambil ulang, supaya badge nggak kedip.
         setNews((prev) => (prev[symbol] ? prev : { ...prev, [symbol]: { status: 'loading' } }))
+        current = symbol
         await fetchInto(symbol, signal)
-        // Terpotong di tengah jalan: lepas lagi supaya putaran effect berikutnya mengambilnya.
-        if (signal.aborted) fetchedIn.current.delete(symbol)
+        current = null
       }
     }
 
     void drain()
-    return () => controller.abort()
+    return () => {
+      controller.abort()
+      // Yang terpotong dilepas SEKARANG, sebelum effect berikutnya jalan (di commit yang
+      // sama), supaya antrean baru mengambilnya lagi dan nggak macet di "loading".
+      if (current !== null) fetched.delete(current)
+    }
   }, [symbols, ready, round, fetchInto])
 
   const load = useCallback(

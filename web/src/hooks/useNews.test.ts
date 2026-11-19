@@ -89,6 +89,19 @@ it('hasil disimpan per simbol', async () => {
   expect(result.current.news.AMD).toEqual({ status: 'ok', news: news('AMD') })
 })
 
+it('watchlist berubah di tengah jalan nggak bikin macet', async () => {
+  const { result, rerender } = renderHook(({ symbols }) => useNews(symbols, true), {
+    initialProps: { symbols: SYMBOLS as readonly string[] },
+  })
+  expect(calls()).toEqual(['AAPL'])
+
+  // Pemilik menghapus AMD selagi berita AAPL masih diambil: AAPL diambil ulang, bukan dilewati.
+  rerender({ symbols: ['AAPL'] })
+  expect(calls()).toEqual(['AAPL', 'AAPL'])
+  await act(async () => pending.AAPL[1].resolve(news('Apple')))
+  expect(result.current.news.AAPL).toEqual({ status: 'ok', news: news('Apple') })
+})
+
 it('refresh tiap 15 menit', async () => {
   vi.useFakeTimers()
   const { result } = renderHook(() => useNews(SYMBOLS, true))

@@ -2,6 +2,9 @@ mod market;
 mod watchlist;
 mod ws;
 
+#[cfg(test)]
+mod tests;
+
 use axum::{
     Router,
     routing::{delete, get},

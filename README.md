@@ -22,10 +22,24 @@ cargo run                     # http://localhost:8080
 ```
 
 Cek: `curl http://localhost:8080/health` → `ok`.
-Endpoint: `/api/quote?symbol=NVDA`, `/api/profile?symbol=NVDA`, `/api/market-status`, WebSocket `/ws` (kirim `{"type":"subscribe","symbol":"AAPL"}`).
+Endpoint: `/api/quote?symbol=NVDA`, `/api/profile?symbol=NVDA`, `/api/market-status`,
+`GET/POST /api/watchlist` (body `{"symbol":"AMD"}`), `DELETE /api/watchlist/{symbol}`,
+WebSocket `/ws` (kirim `{"type":"subscribe","symbol":"AAPL"}`). Semua error berbentuk `{"error":"..."}`.
 
 Catatan: Finnhub free cuma mengizinkan satu koneksi WebSocket per API key. Jangan jalankan
-dua server dengan key yang sama; koneksinya bakal saling memutus.
+dua server dengan key yang sama; koneksinya bakal saling memutus. Server baru membuka koneksi
+itu begitu ada browser yang subscribe, dan menutupnya dengan sopan saat Ctrl+C.
+
+### Test & cek
+
+```sh
+cd server
+cargo test                    # butuh Postgres jalan: tiap test route dapat database sendiri
+cargo clippy --all-targets -- -D warnings
+```
+
+Ubah query `sqlx::query!`? Jalankan `cargo sqlx prepare` lalu commit `server/.sqlx/`, supaya
+build tanpa database (`SQLX_OFFLINE=true`) tetap jalan.
 
 ### Web (React + Vite)
 

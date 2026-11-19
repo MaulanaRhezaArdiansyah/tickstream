@@ -1,4 +1,11 @@
-use std::{sync::Arc, time::Duration};
+use std::{
+    hash::Hash,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 
 use async_trait::async_trait;
 use moka::future::Cache;
@@ -49,44 +56,79 @@ impl MarketCache {
     }
 }
 
+/// Ambil `key` dari `cache`, memanggil `load` kalau belum ada, dan catat hit/miss-nya.
+///
+/// Miss = panggilan ini yang menjalankan `load`, atau hasilnya error (termasuk ikut menunggu
+/// panggilan orang lain yang gagal): dua-duanya berarti cache nggak menyelamatkan request.
+async fn cached<K, V>(
+    cache: &Cache<K, V>,
+    name: &'static str,
+    key: K,
+    load: impl Future<Output = Result<V, MarketError>> + Send,
+) -> Result<V, MarketError>
+where
+    K: Hash + Eq + Send + Sync + 'static,
+    V: Clone + Send + Sync + 'static,
+{
+    let loaded = AtomicBool::new(false);
+    let result = cache
+        .try_get_with(key, async {
+            loaded.store(true, Ordering::Relaxed);
+            load.await
+        })
+        .await
+        .map_err(Arc::unwrap_or_clone);
+    crate::metrics::cache_lookup(name, result.is_ok() && !loaded.load(Ordering::Relaxed));
+    result
+}
+
 /// `try_get_with` cuma menjalankan future `init` kalau key belum ada. Kalau banyak request
 /// nanya key yang sama bersamaan, cuma satu yang manggil sumber; sisanya nunggu hasil itu.
 #[async_trait]
 impl MarketDataSource for MarketCache {
     async fn quote(&self, symbol: &str) -> Result<Quote, MarketError> {
-        self.quotes
-            .try_get_with(symbol.to_string(), self.source.quote(symbol))
-            .await
-            .map_err(Arc::unwrap_or_clone)
+        cached(
+            &self.quotes,
+            "quote",
+            symbol.to_string(),
+            self.source.quote(symbol),
+        )
+        .await
     }
 
     async fn profile(&self, symbol: &str) -> Result<Profile, MarketError> {
-        self.profiles
-            .try_get_with(symbol.to_string(), self.source.profile(symbol))
-            .await
-            .map_err(Arc::unwrap_or_clone)
+        cached(
+            &self.profiles,
+            "profile",
+            symbol.to_string(),
+            self.source.profile(symbol),
+        )
+        .await
     }
 
     async fn market_status(&self) -> Result<MarketStatus, MarketError> {
-        self.status
-            .try_get_with((), self.source.market_status())
-            .await
-            .map_err(Arc::unwrap_or_clone)
+        cached(
+            &self.status,
+            "market_status",
+            (),
+            self.source.market_status(),
+        )
+        .await
     }
 
     async fn company_news(&self, symbol: &str) -> Result<CompanyNews, MarketError> {
-        self.news
-            .try_get_with(symbol.to_string(), self.source.company_news(symbol))
-            .await
-            .map_err(Arc::unwrap_or_clone)
+        cached(
+            &self.news,
+            "news",
+            symbol.to_string(),
+            self.source.company_news(symbol),
+        )
+        .await
     }
 
     /// Yang di-cache `Arc`-nya: cache hit cuma menambah reference count.
     async fn us_symbols(&self) -> Result<Arc<[SymbolInfo]>, MarketError> {
-        self.symbols
-            .try_get_with((), self.source.us_symbols())
-            .await
-            .map_err(Arc::unwrap_or_clone)
+        cached(&self.symbols, "symbols", (), self.source.us_symbols()).await
     }
 }
 
@@ -161,6 +203,47 @@ mod tests {
         let source = Arc::new(CountingSource::default());
         let cache = MarketCache::new(source.clone());
         (source, cache)
+    }
+
+    const LOOKUPS: &str = "tickstream_cache_requests_total";
+
+    #[tokio::test]
+    async fn cache_counts_hits_and_misses() {
+        let m = crate::metrics::testing::capture();
+        let (_, cache) = setup();
+
+        cache.quote("AAPL").await.unwrap();
+        cache.quote("AAPL").await.unwrap();
+
+        assert_eq!(
+            m.counter(LOOKUPS, &[("cache", "quote"), ("result", "miss")]),
+            1
+        );
+        assert_eq!(
+            m.counter(LOOKUPS, &[("cache", "quote"), ("result", "hit")]),
+            1
+        );
+    }
+
+    /// Dua pencarian bersamaan berbagi satu panggilan ke sumber. Kalau panggilan itu gagal,
+    /// yang ikut menunggu juga nggak dapat data, jadi bukan hit.
+    #[tokio::test]
+    async fn failed_lookup_is_a_miss() {
+        let m = crate::metrics::testing::capture();
+        let (source, cache) = setup();
+
+        let (a, b) = tokio::join!(cache.quote("BAD"), cache.quote("BAD"));
+        assert!(a.is_err() && b.is_err());
+        assert_eq!(source.calls(), 1, "satu panggilan dibagi berdua");
+
+        assert_eq!(
+            m.counter(LOOKUPS, &[("cache", "quote"), ("result", "miss")]),
+            2
+        );
+        assert_eq!(
+            m.counter(LOOKUPS, &[("cache", "quote"), ("result", "hit")]),
+            0
+        );
     }
 
     #[tokio::test]

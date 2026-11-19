@@ -21,6 +21,7 @@ use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use crate::{auth::Admin, state::AppState};
 
 const START_TIME: &str = "tickstream_start_time_seconds";
+const CACHE_REQUESTS: &str = "tickstream_cache_requests_total";
 const HTTP_REQUESTS: &str = "tickstream_http_requests_total";
 const HTTP_DURATION: &str = "tickstream_http_request_duration_seconds";
 
@@ -49,6 +50,7 @@ pub fn install() -> anyhow::Result<PrometheusHandle> {
 /// Teks `# HELP` yang ikut dirender di atas tiap metrik.
 fn describe() {
     ::metrics::describe_gauge!(START_TIME, "Waktu server mulai (unix detik)");
+    ::metrics::describe_counter!(CACHE_REQUESTS, "Pencarian cache per cache, hit atau miss");
     ::metrics::describe_counter!(HTTP_REQUESTS, "Request HTTP per pola route dan status");
     ::metrics::describe_histogram!(
         HTTP_DURATION,
@@ -66,6 +68,12 @@ fn unix_now() -> f64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs_f64())
         .unwrap_or_default()
+}
+
+/// Satu pencarian di cache `cache` (`quote`, `profile`, `market_status`, `news`, `symbols`).
+pub fn cache_lookup(cache: &'static str, hit: bool) {
+    let result = if hit { "hit" } else { "miss" };
+    ::metrics::counter!(CACHE_REQUESTS, "cache" => cache, "result" => result).increment(1);
 }
 
 /// Middleware: hitung tiap request dan lama responsnya per pola route.

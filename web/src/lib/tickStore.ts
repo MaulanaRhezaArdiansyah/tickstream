@@ -14,7 +14,8 @@ export interface LiveTick {
   high: number
   low: number
   points: readonly number[]
-  /** Arah perubahan harga terakhir; `null` kalau harganya sama. */
+  /** Arah perubahan harga terakhir; `null` sampai harganya pertama kali berubah. Trade dengan
+   *  harga yang sama nggak mengubahnya, jadi yang menandai perubahan baru adalah `flashSeq`. */
   flash: 'up' | 'down' | null
   /** Naik tiap kali `flash` diisi; dipakai sebagai `key` untuk memutar ulang animasi. */
   flashSeq: number

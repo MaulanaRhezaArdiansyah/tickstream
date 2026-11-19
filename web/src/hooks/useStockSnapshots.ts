@@ -7,6 +7,7 @@ import type { Quote } from '../types'
 export interface Snapshot {
   quote?: Quote
   name?: string
+  logo?: string | null
   error?: string
 }
 
@@ -57,7 +58,7 @@ export function useStockSnapshots(symbols: readonly string[]): Record<string, Sn
         if (signal.aborted) return
         try {
           const profile = await fetchProfile(symbol, signal)
-          patch(symbol, { name: profile.name })
+          patch(symbol, { name: profile.name, logo: profile.logo })
         } catch {
           // Nama cuma pelengkap; kartu tetap jalan tanpa nama.
         }

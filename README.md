@@ -16,6 +16,7 @@ README are in English.
 
 - Streams live trades over WebSocket. Each row shows the price, the change since yesterday's
   close, today's range, a sparkline and the volume since the page was opened.
+- Shows each company's logo from its Finnhub profile.
 - Shows where the New York trading day is (pre-market, regular, after-hours) in Jakarta time.
 - Searches about 11,000 US stocks and ETFs by ticker or company name, entirely in the browser.
 - Keeps the watchlist in PostgreSQL. Anyone can view it; only the owner can change it.
@@ -116,7 +117,7 @@ connections keep closing each other.
 | `DELETE /api/watchlist/{symbol}` | Remove (owner) |
 | `GET /api/admin` | 204 if the bearer token is the owner's |
 | `GET /api/quote?symbol=NVDA` | Latest quote (watched symbols) |
-| `GET /api/profile?symbol=NVDA` | Company name (watched symbols) |
+| `GET /api/profile?symbol=NVDA` | Company name and logo URL (watched symbols) |
 | `GET /api/market-status` | US market session |
 | `GET /api/symbols` | All US stocks and ETFs, gzipped |
 | `GET /ws` | WebSocket; send `{"type":"subscribe","symbol":"AAPL"}` |

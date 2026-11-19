@@ -224,6 +224,35 @@ main {
   min-width: 0;
 }
 
+/* Logo + ticker + nama perusahaan. */
+.who {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Logo Finnhub berupa PNG dengan latar terang, jadi diberi kotak terang supaya
+   logo gelap tetap terlihat di tema gelap. */
+.logo {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: #fff;
+  object-fit: contain;
+  padding: 3px;
+}
+
+.logo-letter {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  background: var(--track);
+  color: var(--text-2);
+  font-weight: 600;
+  font-size: 13px;
+}
+
 .ticker {
   font-weight: 600;
   font-size: 15px;

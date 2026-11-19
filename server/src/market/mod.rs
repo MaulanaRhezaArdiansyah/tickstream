@@ -30,12 +30,15 @@ pub struct Quote {
     pub timestamp: i64,
 }
 
-/// Profil perusahaan. Dashboard baru butuh nama; field lain ditambah kalau dipakai.
+/// Profil perusahaan: nama dan logo. Field lain ditambah kalau dipakai.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Profile {
     /// Finnhub membalas `{}` untuk ticker yang nggak dikenal, jadi default ke string kosong.
     #[serde(default)]
     pub name: String,
+    /// URL gambar logo (https). `None` kalau Finnhub nggak punya logonya.
+    #[serde(default)]
+    pub logo: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

@@ -117,6 +117,7 @@ mod tests {
             self.calls.fetch_add(1, Ordering::SeqCst);
             Ok(Profile {
                 name: "Test Corp".to_string(),
+                logo: None,
             })
         }
 

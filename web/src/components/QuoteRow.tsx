@@ -3,6 +3,7 @@ import { memo } from 'react'
 import type { Snapshot } from '../hooks/useStockSnapshots'
 import { fmt, fmtVol, sign, splitSymbol } from '../lib/format'
 import type { LiveTick } from '../lib/tickStore'
+import { CompanyLogo } from './CompanyLogo'
 import { Sparkline } from './Sparkline'
 import { XIcon } from './XIcon'
 
@@ -52,9 +53,12 @@ export const QuoteRow = memo(function QuoteRow({
 
   return (
     <li className="row cols">
-      <div className="min0">
-        <div className="ticker">{ticker}</div>
-        <div className="sub">{name}</div>
+      <div className="who min0">
+        <CompanyLogo src={snapshot?.logo} ticker={ticker} />
+        <div className="min0">
+          <div className="ticker">{ticker}</div>
+          <div className="sub">{name}</div>
+        </div>
       </div>
 
       {price == null && snapshot?.error ? (

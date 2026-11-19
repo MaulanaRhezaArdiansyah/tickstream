@@ -108,7 +108,7 @@ impl MarketDataSource for FinnhubRest {
     }
 
     async fn profile(&self, symbol: &str) -> Result<Profile, MarketError> {
-        let profile: Profile = self
+        let mut profile: Profile = self
             .get_json("/stock/profile2", &[("symbol", symbol)])
             .await?;
 
@@ -116,6 +116,7 @@ impl MarketDataSource for FinnhubRest {
         if profile.name.is_empty() {
             return Err(MarketError::UnknownSymbol(symbol.to_string()));
         }
+        profile.logo = safe_logo(profile.logo);
         Ok(profile)
     }
 
@@ -179,9 +180,26 @@ impl RawSymbol {
     }
 }
 
+/// URL logo dipasang browser sebagai `<img src>`, jadi cuma https yang diteruskan.
+/// Finnhub membalas `""` untuk perusahaan tanpa logo; itu juga jadi `None`.
+fn safe_logo(url: Option<String>) -> Option<String> {
+    url.filter(|url| url.starts_with("https://"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn passes_only_https_logos() {
+        let logo = |url: &str| safe_logo(Some(url.into()));
+        let aapl = "https://static2.finnhub.io/file/publicdatany/finnhubimage/stock_logo/AAPL.png";
+        assert_eq!(logo(aapl).as_deref(), Some(aapl));
+        assert_eq!(logo(""), None);
+        assert_eq!(logo("http://example.com/a.png"), None);
+        assert_eq!(logo("javascript:alert(1)"), None);
+        assert_eq!(safe_logo(None), None);
+    }
 
     fn raw(symbol: &str, mic: &str, kind: &str) -> RawSymbol {
         RawSymbol {

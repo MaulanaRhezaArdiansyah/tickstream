@@ -56,6 +56,7 @@ impl MarketDataSource for FakeMarket {
     async fn profile(&self, symbol: &str) -> Result<Profile, MarketError> {
         Ok(Profile {
             name: format!("{symbol} Inc"),
+            logo: None,
         })
     }
 

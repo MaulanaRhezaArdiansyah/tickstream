@@ -13,6 +13,8 @@ export interface Quote {
 
 export interface Profile {
   name: string
+  /** URL logo (https), atau null kalau Finnhub nggak punya. */
+  logo: string | null
 }
 
 /** Satu simbol dari `/api/symbols` (lihat `SymbolInfo` di server). */

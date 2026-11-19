@@ -117,10 +117,6 @@ button.primary {
   width: 180px;
 }
 
-.notice {
-  font-size: 13px;
-}
-
 .muted {
   color: var(--muted);
 }
@@ -252,6 +248,39 @@ canvas {
 @keyframes flash {
   to {
     opacity: 0;
+  }
+}
+
+.toasts {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: min(360px, calc(100vw - 32px));
+}
+
+.toast {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  justify-content: space-between;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--down);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.4);
+  animation: toast-in 0.15s ease-out;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
   }
 }
 

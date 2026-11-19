@@ -20,8 +20,13 @@ const MAX_RETRY_MS = 30_000
  *
  * `symbols` boleh berubah (M8: tambah/hapus watchlist): selisihnya dikirim sebagai
  * subscribe/unsubscribe tanpa membuka koneksi baru.
+ *
+ * `onError` menerima pesan error dari server (mis. simbol ditolak karena penuh).
  */
-export function useLiveTicks(symbols: readonly string[]): LiveTicksState {
+export function useLiveTicks(
+  symbols: readonly string[],
+  onError?: (message: string) => void,
+): LiveTicksState {
   // Lazy initializer: store dibuat sekali seumur komponen, bukan tiap render.
   const [store] = useState(() => new TickStore())
   const ticks = useSyncExternalStore(store.subscribe, store.getSnapshot)
@@ -34,6 +39,11 @@ export function useLiveTicks(symbols: readonly string[]): LiveTicksState {
   const socketRef = useRef<WebSocket | null>(null)
   const symbolsRef = useRef(symbols)
   const sentRef = useRef(new Set<string>())
+  // Callback terbaru disimpan di ref, supaya mengganti callback nggak memutus koneksi.
+  const onErrorRef = useRef(onError)
+  useEffect(() => {
+    onErrorRef.current = onError
+  })
 
   // Koneksi: dibuka sekali saat mount, dibuka ulang dengan backoff kalau putus.
   useEffect(() => {
@@ -57,7 +67,10 @@ export function useLiveTicks(symbols: readonly string[]): LiveTicksState {
       socket.onmessage = (event) => {
         const message = JSON.parse(event.data as string) as ServerMessage
         if (message.type === 'trades') store.apply(message.data)
-        else console.warn('ws:', message.symbol ?? '', message.message) // toast di M9
+        else
+          onErrorRef.current?.(
+            message.symbol ? `${message.symbol}: ${message.message}` : message.message,
+          )
       }
 
       socket.onclose = () => {

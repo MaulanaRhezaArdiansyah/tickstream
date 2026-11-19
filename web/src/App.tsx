@@ -1,37 +1,31 @@
-import { useCallback, useState } from 'react'
+import { useCallback } from 'react'
 
 import { errorMessage } from './api/client'
 import { AddSymbolForm } from './components/AddSymbolForm'
 import { Header } from './components/Header'
 import { StockCard } from './components/StockCard'
+import { Toasts } from './components/Toasts'
 import { useLiveTicks } from './hooks/useLiveTicks'
 import { useStockSnapshots } from './hooks/useStockSnapshots'
+import { useToasts } from './hooks/useToasts'
 import { useWatchlist } from './hooks/useWatchlist'
 
 /** Dipakai selama watchlist belum termuat; konstanta supaya referensinya stabil. */
 const NO_SYMBOLS: readonly string[] = []
 
 export function App() {
+  const { toasts, push, dismiss } = useToasts()
   const watchlist = useWatchlist()
   const symbols = watchlist.symbols ?? NO_SYMBOLS
   const snapshots = useStockSnapshots(symbols)
-  const { ticks, connection, ticksPerSecond } = useLiveTicks(symbols)
-  // Pesan error terakhir (sementara; jadi toast di M9).
-  const [notice, setNotice] = useState<string | null>(null)
+  const { ticks, connection, ticksPerSecond } = useLiveTicks(symbols, push)
 
-  const { add, remove } = watchlist
-  const handleAdd = useCallback(
-    async (symbol: string) => {
-      await add(symbol)
-      setNotice(null)
-    },
-    [add],
-  )
+  const { remove } = watchlist
   const handleRemove = useCallback(
     (symbol: string) => {
-      remove(symbol).catch((err: unknown) => setNotice(errorMessage(err)))
+      remove(symbol).catch((err: unknown) => push(errorMessage(err)))
     },
-    [remove],
+    [remove, push],
   )
 
   return (
@@ -39,8 +33,7 @@ export function App() {
       <Header connection={connection} ticksPerSecond={ticksPerSecond} />
       <main>
         <div className="toolbar-row">
-          <AddSymbolForm onAdd={handleAdd} onError={setNotice} />
-          {notice && <span className="notice down">{notice}</span>}
+          <AddSymbolForm onAdd={watchlist.add} onError={push} />
         </div>
 
         {watchlist.loadError && (
@@ -62,6 +55,7 @@ export function App() {
           ))}
         </div>
       </main>
+      <Toasts toasts={toasts} onDismiss={dismiss} />
     </>
   )
 }

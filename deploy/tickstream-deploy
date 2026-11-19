@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Forced command for the Tickstream deploy key (see the deploy job in .github/workflows/ci.yml).
-# Installed as /usr/local/bin/tickstream-deploy; the key in authorized_keys can run nothing else.
+# Installed by hand as /usr/local/bin/tickstream-deploy (it never updates itself); the key in
+# authorized_keys can run nothing else.
 #   publish <sha>   check out <sha>, run its GHCR image (sha-<7 chars>), and roll back to the
 #                   previous tag if the health check fails
 #   check           print the deployed tag
@@ -41,17 +42,27 @@ case "${1:-}" in
     previous=$(sed -n 's/^TAG=//p' "$DEPLOY/.env")
     previous=${previous:-latest}
 
+    previous_head=$(git -C "$ROOT" rev-parse HEAD)
+
     # Compose file and config follow the same commit as the image.
     git -C "$ROOT" fetch -q origin main
     git -C "$ROOT" reset -q --hard "$sha"
 
+    # Pull before touching .env: if the image is missing, nothing changes and the
+    # running release keeps serving. TAG from the environment overrides .env.
+    if ! TAG=$tag compose pull -q app; then
+      echo "Image $tag not available, keeping $previous" >&2
+      git -C "$ROOT" reset -q --hard "$previous_head"
+      exit 1
+    fi
+
     set_tag "$tag"
-    compose pull -q app
     compose up -d --remove-orphans app
 
     if ! probe; then
       echo "Release $tag did not come up, rolling back to $previous" >&2
       set_tag "$previous"
+      git -C "$ROOT" reset -q --hard "$previous_head"
       compose up -d app
       exit 1
     fi

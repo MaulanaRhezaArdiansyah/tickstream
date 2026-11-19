@@ -24,6 +24,7 @@ use crate::{error::AppError, state::AppState};
 pub fn router(state: AppState, web_dir: Option<&Path>) -> Router {
     let api = Router::new()
         .route("/health", get(health))
+        .route("/metrics", get(crate::metrics::render))
         .route("/api/quote", get(market::quote))
         .route("/api/news", get(market::news))
         .route("/api/profile", get(market::profile))

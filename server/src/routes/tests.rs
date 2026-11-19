@@ -154,6 +154,7 @@ fn state_with_trades(
         tasks: TaskTracker::new(),
         webhook_secret: None,
         admin_token: Some(Arc::new(ADMIN.into())),
+        metrics: crate::metrics::builder().build_recorder().handle(),
     };
     (state, trades)
 }
@@ -647,4 +648,68 @@ async fn ws_forwards_only_subscribed_trades_after_history(db: PgPool) {
             {"symbol": "AAPL", "price": 101.0, "timestamp": 30000, "volume": 1.0}
         ]})
     );
+}
+
+/// GET `/metrics` dengan token opsional; kembalikan status, content-type, dan body teks.
+async fn get_metrics(app: &Router, token: Option<&str>) -> (StatusCode, String, String) {
+    let mut request = Request::builder().uri("/metrics");
+    if let Some(token) = token {
+        request = request.header(header::AUTHORIZATION, format!("Bearer {token}"));
+    }
+    let response = app
+        .clone()
+        .oneshot(request.body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let status = response.status();
+    let content_type = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .map(|value| value.to_str().unwrap().to_string())
+        .unwrap_or_default();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    (
+        status,
+        content_type,
+        String::from_utf8(bytes.to_vec()).unwrap(),
+    )
+}
+
+#[sqlx::test]
+async fn metrics_require_the_owner_token(db: PgPool) {
+    let app = app(db);
+    assert_eq!(get_metrics(&app, None).await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        get_metrics(&app, Some("salah")).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+
+    let (status, content_type, _) = get_metrics(&app, Some(ADMIN)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(content_type.starts_with("text/plain"), "{content_type}");
+}
+
+#[sqlx::test]
+async fn metrics_are_closed_without_admin_token(db: PgPool) {
+    let mut state = state(db);
+    state.admin_token = None;
+    let app = super::router(state, None);
+    assert_eq!(
+        get_metrics(&app, Some(ADMIN)).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+#[sqlx::test]
+async fn metrics_render_what_was_recorded(db: PgPool) {
+    let recorder = crate::metrics::builder().build_recorder();
+    let mut state = state(db);
+    state.metrics = recorder.handle();
+    // Perekam lokal: cuma berlaku di thread test ini, jadi test lain nggak ikut tercatat.
+    let _guard = ::metrics::set_default_local_recorder(&recorder);
+    crate::metrics::record_start_time();
+
+    let app = super::router(state, None);
+    let (_, _, body) = get_metrics(&app, Some(ADMIN)).await;
+    assert!(body.contains("tickstream_start_time_seconds"), "{body}");
 }

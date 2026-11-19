@@ -6,6 +6,7 @@ mod finnhub;
 mod history;
 mod hub;
 mod market;
+mod metrics;
 mod routes;
 mod state;
 mod watchlist;
@@ -41,6 +42,18 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let config = Config::from_env()?;
+
+    let metrics = metrics::install().context("gagal memasang recorder metrik")?;
+    // Sampel histogram menumpuk sampai dirender. Upkeep berkala merapikannya, supaya memori
+    // nggak terus tumbuh walaupun `/metrics` jarang dibuka.
+    let upkeep = metrics.clone();
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(5));
+        loop {
+            tick.tick().await;
+            upkeep.run_upkeep();
+        }
+    });
 
     // Pool = beberapa koneksi Postgres yang dipakai bergantian oleh semua request.
     let db = PgPoolOptions::new()
@@ -95,6 +108,7 @@ async fn main() -> anyhow::Result<()> {
         tasks: tasks.clone(),
         webhook_secret: config.webhook_secret.map(Arc::new),
         admin_token: config.admin_token.map(Arc::new),
+        metrics,
     };
     if let Some(dir) = &config.web_dir {
         tracing::info!(dir = %dir.display(), "menyajikan halaman web");

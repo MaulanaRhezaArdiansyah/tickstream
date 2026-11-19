@@ -112,6 +112,7 @@ connections keep closing each other.
 | Endpoint | |
 | --- | --- |
 | `GET /health` | `ok` |
+| `GET /metrics` | Prometheus metrics (owner): `curl -H "Authorization: Bearer $ADMIN_TOKEN" https://tickstream.rhezaardiansyah.com/metrics` |
 | `GET /api/watchlist` | Watched symbols |
 | `POST /api/watchlist` | Add `{"symbol":"AMD"}` (owner) |
 | `DELETE /api/watchlist/{symbol}` | Remove (owner) |

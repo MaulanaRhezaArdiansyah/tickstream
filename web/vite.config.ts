@@ -1,5 +1,5 @@
 import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 
 // Dev: request /api dan /ws diteruskan ke server Rust, jadi browser cuma kenal satu origin
 // (nggak perlu CORS). API_TARGET bisa di-override kalau server jalan di port lain.

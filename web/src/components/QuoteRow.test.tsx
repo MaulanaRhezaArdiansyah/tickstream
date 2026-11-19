@@ -19,6 +19,10 @@ function renderRow(symbol: string, snapshot: Snapshot | undefined, onRemove?: (s
 // Tanpa test globals, Testing Library nggak membersihkan DOM sendiri di antara tes.
 afterEach(cleanup)
 
+// jsdom nggak punya canvas dan mencetak peringatan tiap getContext dipanggil. Sparkline
+// sudah menangani context null, jadi null dikembalikan langsung tanpa peringatan.
+vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+
 it('pengunjung nggak melihat tombol hapus', () => {
   renderRow('AAPL', { quote: QUOTE, name: 'Apple Inc.' })
   expect(screen.queryByRole('button', { name: 'Hapus AAPL dari watchlist' })).toBeNull()

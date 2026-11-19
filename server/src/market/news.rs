@@ -2,8 +2,6 @@
 //! link yang bukan http(s) dan judul kosong dibuang, berita 24 jam terakhir dihitung, lalu
 //! diurutkan dari yang terbaru dan dipotong ke `MAX_ITEMS`.
 
-#![cfg_attr(not(test), allow(dead_code))] // dipakai mulai Task 2 (MarketDataSource)
-
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// Panel cuma menampilkan segini; sisanya nggak dikirim.

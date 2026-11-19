@@ -1,4 +1,8 @@
-use std::{num::NonZeroU32, sync::Arc, time::Duration};
+use std::{
+    num::NonZeroU32,
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use async_trait::async_trait;
 use governor::{DefaultDirectRateLimiter, Quota, RateLimiter};
@@ -7,8 +11,8 @@ use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, de::DeserializeOwned};
 
 use crate::market::{
-    MarketDataSource, MarketError, MarketStatus, Profile, Quote, SymbolInfo, SymbolKind,
-    normalize_symbol,
+    CompanyNews, MarketDataSource, MarketError, MarketStatus, NewsArticle, Profile, Quote,
+    SymbolInfo, SymbolKind, iso_date, normalize_symbol, prepare_news,
 };
 
 const BASE_URL: &str = "https://finnhub.io/api/v1";
@@ -17,6 +21,14 @@ const BASE_URL: &str = "https://finnhub.io/api/v1";
 /// GCRA: rata-rata 1 call/detik dengan burst 25, jadi nggak pernah tembus 30 dalam 1 detik.
 const QUOTA: Quota =
     Quota::per_minute(NonZeroU32::new(60).unwrap()).allow_burst(NonZeroU32::new(25).unwrap());
+
+/// Jatah khusus berita, DI ATAS jatah global: berita paling banyak memakai 20 dari 60 call
+/// per menit, jadi quote dan profil selalu kebagian minimal 40, berapa pun pengunjungnya.
+const NEWS_QUOTA: Quota =
+    Quota::per_minute(NonZeroU32::new(20).unwrap()).allow_burst(NonZeroU32::new(5).unwrap());
+
+/// Rentang berita yang diminta ke Finnhub.
+const NEWS_DAYS: i64 = 7;
 
 /// Batas antre nunggu jatah limiter sebelum request dibalas 429.
 const MAX_WAIT: Duration = Duration::from_secs(2);
@@ -33,6 +45,7 @@ pub struct FinnhubRest {
     /// Key dikirim lewat header, bukan query string, supaya nggak ikut ke-log bareng URL.
     token: HeaderValue,
     limiter: DefaultDirectRateLimiter,
+    news_limiter: DefaultDirectRateLimiter,
 }
 
 impl FinnhubRest {
@@ -46,7 +59,15 @@ impl FinnhubRest {
             http,
             token,
             limiter: RateLimiter::direct(QUOTA),
+            news_limiter: RateLimiter::direct(NEWS_QUOTA),
         })
+    }
+
+    /// Ambil jatah berita dulu; jatah global diambil `get_json` sesudahnya.
+    async fn acquire_news(&self) -> Result<(), MarketError> {
+        tokio::time::timeout(MAX_WAIT, self.news_limiter.until_ready())
+            .await
+            .map_err(|_| MarketError::RateLimited)
     }
 
     async fn get_json<T: DeserializeOwned>(
@@ -125,6 +146,25 @@ impl MarketDataSource for FinnhubRest {
             .await
     }
 
+    async fn company_news(&self, symbol: &str) -> Result<CompanyNews, MarketError> {
+        self.acquire_news().await?;
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default();
+        let now_secs = i64::try_from(now.as_secs()).unwrap_or(i64::MAX);
+        let now_ms = i64::try_from(now.as_millis()).unwrap_or(i64::MAX);
+        // Tanggal UTC; Finnhub cuma menerima tanggal, bukan jam.
+        let from = iso_date(now_secs - NEWS_DAYS * 86_400);
+        let to = iso_date(now_secs);
+        let articles: Vec<NewsArticle> = self
+            .get_json(
+                "/company-news",
+                &[("symbol", symbol), ("from", &from), ("to", &to)],
+            )
+            .await?;
+        Ok(prepare_news(articles, now_ms))
+    }
+
     async fn us_symbols(&self) -> Result<Arc<[SymbolInfo]>, MarketError> {
         // Finnhub membalas 302 ke file statis di static2.finnhub.io; reqwest mengikutinya
         // sendiri (header token ikut terkirim, tapi host-nya tetap milik Finnhub).
@@ -189,6 +229,20 @@ fn safe_logo(url: Option<String>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Jatah berita terpisah dari jatah global: lonjakan 5, lalu ditolak (setelah menunggu
+    /// `MAX_WAIT`), supaya berita nggak pernah menghabiskan jatah quote dan profil.
+    #[tokio::test]
+    async fn news_limiter_allows_a_burst_of_5_then_rejects() {
+        let rest = FinnhubRest::new(&SecretString::from("test")).unwrap();
+        for _ in 0..5 {
+            rest.acquire_news().await.unwrap();
+        }
+        assert!(matches!(
+            rest.acquire_news().await,
+            Err(MarketError::RateLimited)
+        ));
+    }
 
     #[test]
     fn passes_only_https_logos() {

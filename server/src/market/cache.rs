@@ -3,11 +3,13 @@ use std::{sync::Arc, time::Duration};
 use async_trait::async_trait;
 use moka::future::Cache;
 
-use super::{MarketDataSource, MarketError, MarketStatus, Profile, Quote, SymbolInfo};
+use super::{CompanyNews, MarketDataSource, MarketError, MarketStatus, Profile, Quote, SymbolInfo};
 
 const QUOTE_TTL: Duration = Duration::from_secs(15);
 const PROFILE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const STATUS_TTL: Duration = Duration::from_secs(60);
+/// Berita dibagi ke semua pengunjung; Finnhub cuma ditanya sekali per simbol per 15 menit.
+const NEWS_TTL: Duration = Duration::from_secs(15 * 60);
 /// Daftar simbol bursa jarang berubah, dan mengambilnya berat (±7 MB dari Finnhub).
 const SYMBOLS_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const MAX_ENTRIES: u64 = 1_000;
@@ -21,6 +23,7 @@ pub struct MarketCache {
     quotes: Cache<String, Quote>,
     profiles: Cache<String, Profile>,
     status: Cache<(), MarketStatus>,
+    news: Cache<String, CompanyNews>,
     symbols: Cache<(), Arc<[SymbolInfo]>>,
 }
 
@@ -37,6 +40,10 @@ impl MarketCache {
                 .time_to_live(PROFILE_TTL)
                 .build(),
             status: Cache::builder().time_to_live(STATUS_TTL).build(),
+            news: Cache::builder()
+                .max_capacity(MAX_ENTRIES)
+                .time_to_live(NEWS_TTL)
+                .build(),
             symbols: Cache::builder().time_to_live(SYMBOLS_TTL).build(),
         }
     }
@@ -63,6 +70,13 @@ impl MarketDataSource for MarketCache {
     async fn market_status(&self) -> Result<MarketStatus, MarketError> {
         self.status
             .try_get_with((), self.source.market_status())
+            .await
+            .map_err(Arc::unwrap_or_clone)
+    }
+
+    async fn company_news(&self, symbol: &str) -> Result<CompanyNews, MarketError> {
+        self.news
+            .try_get_with(symbol.to_string(), self.source.company_news(symbol))
             .await
             .map_err(Arc::unwrap_or_clone)
     }
@@ -133,6 +147,14 @@ mod tests {
             self.calls.fetch_add(1, Ordering::SeqCst);
             Ok(Arc::new([]))
         }
+
+        async fn company_news(&self, _symbol: &str) -> Result<CompanyNews, MarketError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(CompanyNews {
+                count_24h: 0,
+                items: Vec::new(),
+            })
+        }
     }
 
     fn setup() -> (Arc<CountingSource>, MarketCache) {
@@ -157,6 +179,18 @@ mod tests {
             3,
             "1x quote AAPL + 1x market status + 1x daftar simbol"
         );
+    }
+
+    #[tokio::test]
+    async fn news_is_cached_per_symbol() {
+        let (source, cache) = setup();
+
+        let first = cache.company_news("AAPL").await.unwrap();
+        let second = cache.company_news("AAPL").await.unwrap();
+        cache.company_news("NVDA").await.unwrap();
+
+        assert_eq!(source.calls(), 2, "1x AAPL + 1x NVDA");
+        assert_eq!(first, second);
     }
 
     #[tokio::test]

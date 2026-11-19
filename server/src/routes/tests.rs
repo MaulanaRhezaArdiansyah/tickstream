@@ -29,8 +29,8 @@ use crate::{
     history::Recorder,
     hub::Hub,
     market::{
-        MarketDataSource, MarketError, MarketStatus, Profile, Quote, SymbolInfo, SymbolKind, Trade,
-        TradeBatch, TradeFeed,
+        CompanyNews, MarketDataSource, MarketError, MarketStatus, NewsItem, Profile, Quote,
+        SymbolInfo, SymbolKind, Trade, TradeBatch, TradeFeed,
     },
     state::AppState,
 };
@@ -70,6 +70,20 @@ impl MarketDataSource for FakeMarket {
         Ok(MarketStatus {
             is_open: false,
             session: None,
+        })
+    }
+
+    async fn company_news(&self, symbol: &str) -> Result<CompanyNews, MarketError> {
+        Ok(CompanyNews {
+            count_24h: 1,
+            items: vec![NewsItem {
+                id: 1,
+                datetime: 1_000,
+                headline: format!("{symbol} news"),
+                source: "Test".into(),
+                summary: String::new(),
+                url: "https://example.com".into(),
+            }],
         })
     }
 

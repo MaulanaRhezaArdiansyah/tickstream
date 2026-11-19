@@ -2,6 +2,7 @@ import { memo } from 'react'
 
 import type { Snapshot } from '../hooks/useStockSnapshots'
 import { fmt, fmtVol, sign, splitSymbol } from '../lib/format'
+import { newsButtonId } from '../lib/selection'
 import type { LiveTick } from '../lib/tickStore'
 import { CompanyLogo } from './CompanyLogo'
 import { Sparkline } from './Sparkline'
@@ -23,6 +24,12 @@ interface QuoteRowProps {
    * Nggak diisi = tanpa tombol hapus (pengunjung).
    */
   onRemove?: (symbol: string) => void
+  /** Jumlah berita 24 jam terakhir; 0 atau belum termuat = tanpa badge. */
+  newsCount?: number
+  /** Panel berita simbol ini sedang terbuka. */
+  selected?: boolean
+  /** Harus fungsi yang stabil. Nggak diisi = baris nggak bisa diklik. */
+  onSelect?: (symbol: string) => void
 }
 
 /**
@@ -37,6 +44,9 @@ export const QuoteRow = memo(function QuoteRow({
   live,
   points,
   onRemove,
+  newsCount,
+  selected,
+  onSelect,
 }: QuoteRowProps) {
   const quote = snapshot?.quote
   // Harga live menimpa harga quote; perubahan tetap dihitung dari prev close harian.
@@ -55,14 +65,28 @@ export const QuoteRow = memo(function QuoteRow({
   const name = snapshot?.name || venue || (loading ? 'Mengambil quote…' : ' ')
 
   return (
-    <li className="row cols">
-      <div className="who min0">
-        <CompanyLogo src={snapshot?.logo} ticker={ticker} />
-        <div className="min0">
-          <div className="ticker">{ticker}</div>
-          <div className="sub">{name}</div>
+    // Klik di mana pun pada baris membuka berita. Pengguna keyboard memakai tombol simbol
+    // (Enter/Space); klik tombol itu ikut naik ke <li>, jadi handler-nya cukup satu.
+    <li
+      className={`row cols${onSelect ? ' selectable' : ''}${selected ? ' selected' : ''}`}
+      aria-current={selected ? 'true' : undefined}
+      onClick={onSelect && (() => onSelect(symbol))}
+    >
+      {onSelect ? (
+        <button
+          type="button"
+          id={newsButtonId(symbol)}
+          className="who who-btn min0"
+          aria-label={`Berita ${symbol}`}
+          aria-expanded={selected ?? false}
+        >
+          <Who snapshot={snapshot} ticker={ticker} name={name} newsCount={newsCount} />
+        </button>
+      ) : (
+        <div className="who min0">
+          <Who snapshot={snapshot} ticker={ticker} name={name} newsCount={newsCount} />
         </div>
-      </div>
+      )}
 
       {price == null && snapshot?.error ? (
         <div className="row-error">{snapshot.error}</div>
@@ -113,7 +137,11 @@ export const QuoteRow = memo(function QuoteRow({
             type="button"
             title={`Hapus ${symbol}`}
             aria-label={`Hapus ${symbol} dari watchlist`}
-            onClick={() => onRemove(symbol)}
+            onClick={(event) => {
+              // Hapus bukan "buka berita".
+              event.stopPropagation()
+              onRemove(symbol)
+            }}
           >
             <XIcon />
           </button>
@@ -123,10 +151,32 @@ export const QuoteRow = memo(function QuoteRow({
   )
 })
 
+interface WhoProps {
+  snapshot: Snapshot | undefined
+  ticker: string
+  name: string
+  newsCount: number | undefined
+}
+
+function Who({ snapshot, ticker, name, newsCount }: WhoProps) {
+  return (
+    <>
+      <CompanyLogo src={snapshot?.logo} ticker={ticker} />
+      <div className="min0">
+        <div className="ticker">
+          {ticker}
+          {newsCount ? <span className="news-badge">{newsCount} berita</span> : null}
+        </div>
+        <div className="sub">{name}</div>
+      </div>
+    </>
+  )
+}
+
 /** Array kosong yang referensinya tetap, supaya efek gambar Sparkline nggak jalan sia-sia. */
 const NO_POINTS: readonly number[] = []
 
-function Change({ change, prevClose }: { change: number; prevClose: number }) {
+export function Change({ change, prevClose }: { change: number; prevClose: number }) {
   const pct = (change / prevClose) * 100
   return (
     <>

@@ -70,3 +70,69 @@ it('error ditampilkan kalau harganya nggak ada', () => {
   renderRow('XYZ', { error: 'simbol XYZ tidak ditemukan' })
   expect(screen.getByText('simbol XYZ tidak ditemukan')).not.toBeNull()
 })
+
+it('badge berita', () => {
+  const { rerender } = render(
+    <ul>
+      <QuoteRow
+        symbol="AAPL"
+        snapshot={undefined}
+        live={undefined}
+        points={undefined}
+        newsCount={6}
+      />
+    </ul>,
+  )
+  expect(screen.getByText('6 berita')).not.toBeNull()
+
+  rerender(
+    <ul>
+      <QuoteRow
+        symbol="AAPL"
+        snapshot={undefined}
+        live={undefined}
+        points={undefined}
+        newsCount={0}
+      />
+    </ul>,
+  )
+  expect(screen.queryByText(/berita/)).toBeNull()
+})
+
+it('klik baris memilih simbol', () => {
+  const onSelect = vi.fn()
+  render(
+    <ul>
+      <QuoteRow
+        symbol="AAPL"
+        snapshot={undefined}
+        live={undefined}
+        points={undefined}
+        onSelect={onSelect}
+      />
+    </ul>,
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Berita AAPL' }))
+  expect(onSelect).toHaveBeenCalledTimes(1)
+  expect(onSelect).toHaveBeenCalledWith('AAPL')
+})
+
+it('hapus nggak ikut memilih', () => {
+  const onSelect = vi.fn()
+  const onRemove = vi.fn()
+  render(
+    <ul>
+      <QuoteRow
+        symbol="AAPL"
+        snapshot={undefined}
+        live={undefined}
+        points={undefined}
+        onSelect={onSelect}
+        onRemove={onRemove}
+      />
+    </ul>,
+  )
+  fireEvent.click(screen.getByRole('button', { name: 'Hapus AAPL dari watchlist' }))
+  expect(onRemove).toHaveBeenCalledWith('AAPL')
+  expect(onSelect).not.toHaveBeenCalled()
+})

@@ -219,6 +219,159 @@ main {
   background: var(--surface);
 }
 
+.row.selectable {
+  cursor: pointer;
+}
+
+/* Baris yang panel beritanya sedang terbuka. */
+.row.selected {
+  background: var(--surface);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+/* Tombol simbol tampil persis seperti sel biasa; dia ada untuk keyboard dan pembaca layar. */
+.who-btn {
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.news-badge {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--track);
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* ---------- Panel berita ---------- */
+
+/* Papan di kiri, panel di kanan; kolom papan yang sempit disembunyikan selama panel terbuka. */
+.workspace.open {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 40%);
+  gap: 16px;
+  align-items: start;
+}
+
+.workspace.open .hide-narrow {
+  display: none;
+}
+
+.workspace.open .cols {
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 0.9fr) 40px;
+}
+
+.news-panel {
+  position: sticky;
+  top: 16px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.news-head {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 8px 14px 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.news-head h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.news-price {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  margin-left: auto;
+  text-align: right;
+}
+
+.news-price .price {
+  font-family: var(--figures);
+  font-size: 18px;
+}
+
+.news-close {
+  flex: none;
+}
+
+.close-text {
+  display: none;
+}
+
+.news-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.news-item {
+  padding: 14px 20px;
+}
+
+.news-item + .news-item {
+  border-top: 1px solid var(--line-soft);
+}
+
+.news-meta {
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.news-item a {
+  color: var(--text);
+  font-weight: 600;
+  line-height: 1.4;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.news-item a:hover {
+  text-decoration: underline;
+}
+
+.clamp-3 {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  margin: 6px 0 0;
+  color: var(--text-2);
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.news-state {
+  margin: 0;
+  padding: 20px;
+  color: var(--muted);
+}
+
+.news-state p {
+  margin: 0 0 12px;
+}
+
 .num {
   text-align: right;
 }
@@ -494,6 +647,30 @@ main {
 @media (max-width: 560px) {
   .page {
     padding-inline: 16px;
+  }
+
+  /* Di HP panel menutupi layar penuh; papan tetap utuh di belakangnya. */
+  .workspace.open {
+    display: block;
+  }
+
+  .news-panel {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .close-text {
+    display: inline;
+  }
+
+  .news-close {
+    width: auto;
+    gap: 6px;
+    padding-inline: 10px;
   }
 
   .cols {

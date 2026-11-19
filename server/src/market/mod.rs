@@ -2,8 +2,12 @@
 //! jadi sumber data bisa diganti mock di test.
 
 mod cache;
+mod news;
 
 pub use cache::MarketCache;
+#[cfg(test)]
+pub use news::NewsItem;
+pub use news::{CompanyNews, NewsArticle, iso_date, prepare_news};
 
 use std::sync::Arc;
 
@@ -128,6 +132,8 @@ pub trait MarketDataSource: Send + Sync {
     async fn quote(&self, symbol: &str) -> Result<Quote, MarketError>;
     async fn profile(&self, symbol: &str) -> Result<Profile, MarketError>;
     async fn market_status(&self) -> Result<MarketStatus, MarketError>;
+    /// Berita perusahaan 7 hari terakhir (lihat `news.rs`).
+    async fn company_news(&self, symbol: &str) -> Result<CompanyNews, MarketError>;
     /// Saham dan ETF di bursa utama US, urut simbol. `Arc<[T]>`: daftarnya ribuan baris
     /// dan dibagi ke semua request tanpa disalin.
     async fn us_symbols(&self) -> Result<Arc<[SymbolInfo]>, MarketError>;

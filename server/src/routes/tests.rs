@@ -29,8 +29,8 @@ use crate::{
     history::Recorder,
     hub::Hub,
     market::{
-        MarketDataSource, MarketError, MarketStatus, Profile, Quote, SymbolInfo, SymbolKind, Trade,
-        TradeBatch, TradeFeed,
+        CompanyNews, MarketDataSource, MarketError, MarketStatus, NewsItem, Profile, Quote,
+        SymbolInfo, SymbolKind, Trade, TradeBatch, TradeFeed,
     },
     state::AppState,
 };
@@ -70,6 +70,20 @@ impl MarketDataSource for FakeMarket {
         Ok(MarketStatus {
             is_open: false,
             session: None,
+        })
+    }
+
+    async fn company_news(&self, symbol: &str) -> Result<CompanyNews, MarketError> {
+        Ok(CompanyNews {
+            count_24h: 1,
+            items: vec![NewsItem {
+                id: 1,
+                datetime: 1_000,
+                headline: format!("{symbol} news"),
+                source: "Test".into(),
+                summary: String::new(),
+                url: "https://example.com".into(),
+            }],
         })
     }
 
@@ -373,6 +387,32 @@ async fn quotes_are_served_only_for_watched_symbols(db: PgPool) {
         let (status, _) = call_as(&app, None, "GET", uri, None).await;
         assert_eq!(status, StatusCode::NOT_FOUND, "{uri}");
     }
+}
+
+#[sqlx::test]
+async fn news_is_served_only_for_watched_symbols(db: PgPool) {
+    let app = app(db);
+    let (status, body) = call_as(&app, None, "GET", "/api/news?symbol=aapl", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body,
+        json!({
+            "count24h": 1,
+            "items": [{
+                "id": 1,
+                "datetime": 1000,
+                "headline": "AAPL news",
+                "source": "Test",
+                "summary": "",
+                "url": "https://example.com",
+            }],
+        })
+    );
+    // AMD dikenal sumber data, tapi nggak ada di watchlist seed.
+    let (status, _) = call_as(&app, None, "GET", "/api/news?symbol=AMD", None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = call_as(&app, None, "GET", "/api/news?symbol=", None).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
 // ---- daftar simbol ----

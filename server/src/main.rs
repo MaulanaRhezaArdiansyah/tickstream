@@ -5,12 +5,15 @@ mod hub;
 mod market;
 mod routes;
 mod state;
+mod watchlist;
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
-use tracing_subscriber::EnvFilter;
-
+use anyhow::Context;
+use secrecy::ExposeSecret;
+use sqlx::postgres::PgPoolOptions;
 use tokio::sync::broadcast;
+use tracing_subscriber::EnvFilter;
 
 use crate::{
     config::Config,
@@ -33,6 +36,17 @@ async fn main() -> anyhow::Result<()> {
 
     let config = Config::from_env()?;
 
+    // Pool = beberapa koneksi Postgres yang dipakai bergantian oleh semua request.
+    let db = PgPoolOptions::new()
+        .max_connections(5)
+        .acquire_timeout(Duration::from_secs(5))
+        .connect(config.database_url.expose_secret())
+        .await
+        .context("gagal konek ke Postgres (sudah `docker compose up -d`?)")?;
+    // Migration ikut di-embed ke binary saat compile, lalu dijalankan tiap startup.
+    // Yang sudah pernah jalan dilewati (dicatat di tabel _sqlx_migrations).
+    sqlx::migrate!().run(&db).await.context("migration gagal")?;
+
     let finnhub = Arc::new(FinnhubRest::new(&config.finnhub_api_key)?);
 
     // Kapasitas = berapa batch yang boleh numpuk untuk client yang lambat sebelum ia
@@ -43,6 +57,7 @@ async fn main() -> anyhow::Result<()> {
     let state = AppState {
         market: Arc::new(MarketCache::new(finnhub)),
         hub: Arc::new(Hub::new(Arc::new(stream), trades)),
+        db,
     };
     let app = routes::router(state);
 

@@ -14,7 +14,7 @@ Dashboard saham US real-time. Port dari PoC vanilla JS (`us-stock-dashboard.html
 ## Menjalankan (dev)
 
 ```sh
-docker compose up -d          # PostgreSQL di localhost:5432
+docker compose up -d          # PostgreSQL di localhost:5433
 
 cd server
 cp .env.example .env          # isi FINNHUB_API_KEY

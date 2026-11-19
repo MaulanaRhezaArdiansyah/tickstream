@@ -8,6 +8,8 @@ pub struct Config {
     pub bind_addr: SocketAddr,
     /// `SecretString` nggak bisa ke-print lewat `{:?}`, jadi key aman dari log yang nggak disengaja.
     pub finnhub_api_key: SecretString,
+    /// Rahasia juga: URL-nya memuat password database.
+    pub database_url: SecretString,
 }
 
 impl Config {
@@ -23,9 +25,14 @@ impl Config {
             .context("FINNHUB_API_KEY wajib diisi di server/.env")?
             .into();
 
+        let database_url: SecretString = std::env::var("DATABASE_URL")
+            .context("DATABASE_URL wajib diisi di server/.env")?
+            .into();
+
         Ok(Self {
             bind_addr,
             finnhub_api_key,
+            database_url,
         })
     }
 }

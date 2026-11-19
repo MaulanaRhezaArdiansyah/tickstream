@@ -120,7 +120,7 @@ connections keep closing each other.
 | `GET /api/profile?symbol=NVDA` | Company name and logo URL (watched symbols) |
 | `GET /api/market-status` | US market session |
 | `GET /api/symbols` | All US stocks and ETFs, gzipped |
-| `GET /ws` | WebSocket; send `{"type":"subscribe","symbol":"AAPL"}` |
+| `GET /ws` | WebSocket; send `{"type":"subscribe","symbol":"AAPL"}`, get that symbol's last 30 minutes (`history`) then live `trades` |
 | `POST /webhook/finnhub` | Finnhub webhook, enabled by `FINNHUB_WEBHOOK_SECRET` |
 
 Errors always have the shape `{"error":"..."}`.

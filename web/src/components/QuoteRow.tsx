@@ -16,6 +16,8 @@ interface QuoteRowProps {
   symbol: string
   snapshot: Snapshot | undefined
   live: LiveTick | undefined
+  /** Titik sparkline (30 menit terakhir); `undefined` = belum ada riwayat. */
+  points: readonly number[] | undefined
   /**
    * Harus fungsi yang stabil (useCallback), kalau nggak `memo` jadi percuma.
    * Nggak diisi = tanpa tombol hapus (pengunjung).
@@ -33,6 +35,7 @@ export const QuoteRow = memo(function QuoteRow({
   symbol,
   snapshot,
   live,
+  points,
   onRemove,
 }: QuoteRowProps) {
   const quote = snapshot?.quote
@@ -95,7 +98,7 @@ export const QuoteRow = memo(function QuoteRow({
           </div>
           <div className="hide-narrow">
             <Sparkline
-              points={live?.points ?? NO_POINTS}
+              points={points ?? NO_POINTS}
               color={direction === 'down' ? DOWN : direction === 'up' ? UP : NEUTRAL}
             />
           </div>

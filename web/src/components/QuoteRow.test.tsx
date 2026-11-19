@@ -11,7 +11,13 @@ const QUOTE: Quote = { price: 110, open: 100, high: 112, low: 99, prevClose: 100
 function renderRow(symbol: string, snapshot: Snapshot | undefined, onRemove?: (s: string) => void) {
   return render(
     <ul>
-      <QuoteRow symbol={symbol} snapshot={snapshot} live={undefined} onRemove={onRemove} />
+      <QuoteRow
+        symbol={symbol}
+        snapshot={snapshot}
+        live={undefined}
+        points={[100, 110]}
+        onRemove={onRemove}
+      />
     </ul>,
   )
 }

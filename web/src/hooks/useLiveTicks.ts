@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 
-import { TickStore, type LiveTicks } from '../lib/tickStore'
+import { TickStore, type LiveTicks, type Sparks } from '../lib/tickStore'
 import type { ServerMessage } from '../types'
 
 export type ConnectionState = 'connecting' | 'live' | 'reconnecting'
 
 export interface LiveTicksState {
   ticks: LiveTicks
+  sparks: Sparks
   connection: ConnectionState
   ticksPerSecond: number
 }
@@ -30,6 +31,7 @@ export function useLiveTicks(
   // Lazy initializer: store dibuat sekali seumur komponen, bukan tiap render.
   const [store] = useState(() => new TickStore())
   const ticks = useSyncExternalStore(store.subscribe, store.getSnapshot)
+  const sparks = useSyncExternalStore(store.subscribe, store.getSparks)
   const [connection, setConnection] = useState<ConnectionState>('connecting')
   const [ticksPerSecond, setTicksPerSecond] = useState(0)
 
@@ -67,6 +69,8 @@ export function useLiveTicks(
       socket.onmessage = (event) => {
         const message = JSON.parse(event.data as string) as ServerMessage
         if (message.type === 'trades') store.apply(message.data)
+        // Datang sekali per subscribe (juga setelah reconnect), sebelum trade simbol itu.
+        else if (message.type === 'history') store.seed(message.symbol, message.points)
         else
           onErrorRef.current?.(
             message.symbol ? `${message.symbol}: ${message.message}` : message.message,
@@ -108,7 +112,7 @@ export function useLiveTicks(
     sentRef.current = wanted
   }, [symbols])
 
-  return { ticks, connection, ticksPerSecond }
+  return { ticks, sparks, connection, ticksPerSecond }
 }
 
 function send(socket: WebSocket, type: 'subscribe' | 'unsubscribe', symbol: string) {

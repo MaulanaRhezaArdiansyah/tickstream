@@ -42,4 +42,7 @@ export interface Trade {
 
 /** Pesan dari `/ws` (lihat `ServerMessage` di server/src/routes/ws.rs). */
 export type ServerMessage =
-  { type: 'trades'; data: Trade[] } | { type: 'error'; symbol: string | null; message: string }
+  | { type: 'trades'; data: Trade[] }
+  /** Riwayat sparkline 30 menit: `[awal kelompok 10 detik (Unix ms), harga]`, urut dari lama. */
+  | { type: 'history'; symbol: string; points: [number, number][] }
+  | { type: 'error'; symbol: string | null; message: string }

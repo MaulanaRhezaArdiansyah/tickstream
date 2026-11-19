@@ -26,7 +26,7 @@ export function App() {
   const watchlist = useWatchlist(owner.token)
   const symbols = watchlist.symbols ?? NO_SYMBOLS
   const snapshots = useStockSnapshots(symbols)
-  const { ticks, connection, ticksPerSecond } = useLiveTicks(symbols, push)
+  const { ticks, sparks, connection, ticksPerSecond } = useLiveTicks(symbols, push)
 
   // Server menolak token (mis. sudah diganti): keluar dari mode pemilik, lalu tampilkan pesannya.
   const { signOut } = owner
@@ -71,6 +71,7 @@ export function App() {
         symbols={symbols}
         snapshots={snapshots}
         ticks={ticks}
+        sparks={sparks}
         onRemove={canEdit ? handleRemove : undefined}
       />
     )

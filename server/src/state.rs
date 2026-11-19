@@ -4,7 +4,7 @@ use secrecy::SecretString;
 use sqlx::PgPool;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
-use crate::{hub::Hub, market::MarketDataSource};
+use crate::{history::Recorder, hub::Hub, market::MarketDataSource};
 
 /// State yang dibagi ke semua handler. Axum meng-`clone()` ini per request,
 /// jadi isinya `Arc`: yang ke-copy cuma pointer + counter, bukan datanya.
@@ -12,6 +12,8 @@ use crate::{hub::Hub, market::MarketDataSource};
 pub struct AppState {
     pub market: Arc<dyn MarketDataSource>,
     pub hub: Arc<Hub>,
+    /// Riwayat sparkline semua simbol watchlist.
+    pub recorder: Arc<Recorder>,
     /// `PgPool` sudah berisi `Arc` di dalamnya, jadi murah di-clone.
     pub db: PgPool,
     /// Di-cancel saat server diminta berhenti (Ctrl+C / SIGTERM).

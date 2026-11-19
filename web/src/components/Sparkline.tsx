@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react'
 
+import { sparkX } from '../lib/sparkline'
+
 interface SparklineProps {
   points: readonly number[]
   color: string
@@ -40,7 +42,7 @@ function draw(canvas: HTMLCanvasElement, points: readonly number[], color: strin
     max += 0.01
     min -= 0.01
   }
-  const x = (i: number) => (i / (points.length - 1)) * w
+  const x = (i: number) => sparkX(i, points.length, w)
   const y = (v: number) => h - 2 - ((v - min) / (max - min)) * (h - 4)
 
   ctx.beginPath()

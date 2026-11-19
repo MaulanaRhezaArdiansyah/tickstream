@@ -3,6 +3,7 @@ mod config;
 mod error;
 mod extract;
 mod finnhub;
+mod history;
 mod hub;
 mod market;
 mod routes;
@@ -22,6 +23,7 @@ use tracing_subscriber::EnvFilter;
 use crate::{
     config::Config,
     finnhub::{FinnhubRest, FinnhubStream},
+    history::Recorder,
     hub::Hub,
     market::MarketCache,
     state::AppState,
@@ -74,9 +76,20 @@ async fn main() -> anyhow::Result<()> {
     if config.webhook_secret.is_none() {
         tracing::info!("FINNHUB_WEBHOOK_SECRET kosong: POST /webhook/finnhub dimatikan");
     }
+    let hub = Arc::new(Hub::new(Arc::new(stream), trades));
+    // Server ikut "menonton" semua simbol watchlist, jadi riwayat sparkline terkumpul
+    // walaupun belum ada yang membuka halaman.
+    let recorder = Recorder::new(&hub);
+    recorder
+        .watch_watchlist(&db)
+        .await
+        .context("gagal membaca watchlist untuk recorder")?;
+    Arc::clone(&recorder).spawn(hub.trades(), shutdown.clone(), &tasks);
+
     let state = AppState {
         market: Arc::new(MarketCache::new(finnhub)),
-        hub: Arc::new(Hub::new(Arc::new(stream), trades)),
+        hub,
+        recorder,
         db: db.clone(),
         shutdown: shutdown.clone(),
         tasks: tasks.clone(),

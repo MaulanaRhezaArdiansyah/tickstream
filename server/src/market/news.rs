@@ -13,23 +13,28 @@ const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 /// artikel yang nggak lengkap nggak boleh menggagalkan seluruh daftar.
 #[derive(Debug, Deserialize)]
 pub struct NewsArticle {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub id: i64,
     /// Unix timestamp dalam detik.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub datetime: i64,
-    #[serde(default, deserialize_with = "string_or_null")]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub headline: String,
-    #[serde(default, deserialize_with = "string_or_null")]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub source: String,
-    #[serde(default, deserialize_with = "string_or_null")]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub summary: String,
-    #[serde(default, deserialize_with = "string_or_null")]
+    #[serde(default, deserialize_with = "null_as_default")]
     pub url: String,
 }
 
-fn string_or_null<'de, D: Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
-    Ok(Option::<String>::deserialize(deserializer)?.unwrap_or_default())
+/// `null` diperlakukan sama dengan field yang nggak dikirim: nilai kosong (`""` / `0`).
+fn null_as_default<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de> + Default,
+{
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 /// Artikel yang dikirim ke browser.
@@ -62,7 +67,8 @@ pub fn prepare_news(articles: Vec<NewsArticle>, now_ms: i64) -> CompanyNews {
         .filter(|a| !a.headline.trim().is_empty())
         .map(|a| NewsItem {
             id: a.id,
-            datetime: a.datetime * 1000,
+            // Angka ngawur dari luar nggak boleh bikin server panic.
+            datetime: a.datetime.saturating_mul(1000),
             headline: a.headline,
             source: a.source,
             summary: a.summary,
@@ -166,6 +172,23 @@ mod tests {
         let news = prepare_news(articles, 0);
         assert_eq!(news.items[0].source, "");
         assert_eq!(news.items[0].summary, "");
+    }
+
+    #[test]
+    fn null_numbers_default_to_zero() {
+        let articles: Vec<NewsArticle> = serde_json::from_str(
+            r#"[{"id":null,"datetime":null,"headline":"H","url":"https://x"}]"#,
+        )
+        .unwrap();
+        let news = prepare_news(articles, 0);
+        assert_eq!(news.items[0].id, 0);
+        assert_eq!(news.items[0].datetime, 0);
+    }
+
+    #[test]
+    fn absurd_datetime_does_not_overflow() {
+        let news = prepare_news(vec![ok(1, i64::MAX)], 0);
+        assert_eq!(news.items[0].datetime, i64::MAX);
     }
 
     #[test]

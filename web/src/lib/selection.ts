@@ -8,3 +8,8 @@ export function visibleSelection(
 
 /** `id` tombol simbol di baris, supaya fokus bisa dikembalikan waktu panel ditutup. */
 export const newsButtonId = (symbol: string) => `news-btn-${symbol}`
+
+/** Pilihan setelah `removed` dihapus dari watchlist; simbol itu dilupakan, bukan cuma disembunyikan. */
+export function selectionAfterRemove(selected: string | null, removed: string): string | null {
+  return selected === removed ? null : selected
+}

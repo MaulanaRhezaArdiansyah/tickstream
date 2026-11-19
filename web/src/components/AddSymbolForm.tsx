@@ -94,6 +94,8 @@ export function AddSymbolForm({ onAdd, onError, watched }: AddSymbolFormProps) {
         moveTo(active - 1)
         break
       case 'Escape':
+        // Escape ini milik kolom ini; panel berita nggak ikut tertutup.
+        event.preventDefault()
         if (open) setOpen(false)
         else setValue('')
         break

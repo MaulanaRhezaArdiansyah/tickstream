@@ -161,3 +161,7 @@ board and paste `ADMIN_TOKEN`.
 Tickstream started as a single HTML file in vanilla JavaScript, kept as `us-stock-dashboard.html`
 for reference. It was rebuilt milestone by milestone as a way to learn Rust and React, moving the
 API key, rate limiting and the Finnhub connection to a server the browser can trust.
+
+## License
+
+[MIT](LICENSE)

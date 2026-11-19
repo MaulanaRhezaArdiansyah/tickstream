@@ -22,6 +22,7 @@ use crate::{auth::Admin, state::AppState};
 
 const START_TIME: &str = "tickstream_start_time_seconds";
 const CACHE_REQUESTS: &str = "tickstream_cache_requests_total";
+const FINNHUB_REQUESTS: &str = "tickstream_finnhub_requests_total";
 const HTTP_REQUESTS: &str = "tickstream_http_requests_total";
 const HTTP_DURATION: &str = "tickstream_http_request_duration_seconds";
 
@@ -51,6 +52,10 @@ pub fn install() -> anyhow::Result<PrometheusHandle> {
 fn describe() {
     ::metrics::describe_gauge!(START_TIME, "Waktu server mulai (unix detik)");
     ::metrics::describe_counter!(CACHE_REQUESTS, "Pencarian cache per cache, hit atau miss");
+    ::metrics::describe_counter!(
+        FINNHUB_REQUESTS,
+        "Panggilan REST ke Finnhub per endpoint dan hasilnya"
+    );
     ::metrics::describe_counter!(HTTP_REQUESTS, "Request HTTP per pola route dan status");
     ::metrics::describe_histogram!(
         HTTP_DURATION,
@@ -74,6 +79,39 @@ fn unix_now() -> f64 {
 pub fn cache_lookup(cache: &'static str, hit: bool) {
     let result = if hit { "hit" } else { "miss" };
     ::metrics::counter!(CACHE_REQUESTS, "cache" => cache, "result" => result).increment(1);
+}
+
+/// Hasil satu panggilan REST ke Finnhub.
+#[derive(Clone, Copy)]
+pub enum Outcome {
+    Ok,
+    /// 429 dari Finnhub: jatah per menit habis di sisi mereka.
+    RateLimited,
+    /// Limiter kita menolak sebelum memanggil Finnhub, supaya jatahnya nggak tembus.
+    LimitedLocally,
+    /// Gagal kirim, 401/403/status lain, atau JSON yang nggak bisa dibaca.
+    Error,
+}
+
+impl Outcome {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::RateLimited => "rate_limited",
+            Self::LimitedLocally => "limited_locally",
+            Self::Error => "error",
+        }
+    }
+}
+
+/// Satu panggilan REST ke Finnhub. `endpoint` = path Finnhub (`/quote`), tanpa query.
+pub fn finnhub_request(endpoint: &str, outcome: Outcome) {
+    ::metrics::counter!(
+        FINNHUB_REQUESTS,
+        "endpoint" => endpoint.to_string(),
+        "outcome" => outcome.as_str()
+    )
+    .increment(1);
 }
 
 /// Middleware: hitung tiap request dan lama responsnya per pola route.

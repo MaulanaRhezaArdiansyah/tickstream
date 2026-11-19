@@ -19,7 +19,7 @@ export const Header = memo(function Header({ connection, ticksPerSecond }: Heade
   return (
     <header className="topbar">
       <div className="page">
-        <div className="brand">US Stock Live</div>
+        <div className="brand">Tickstream</div>
         <div className="topbar-meta">
           <Clock />
           <span className="conn">

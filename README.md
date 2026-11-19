@@ -1,6 +1,6 @@
-# US Stock Live
+# Tickstream
 
-Dashboard saham US real-time. Port dari PoC vanilla JS (`us-stock-dashboard.html`) ke:
+Watchlist saham US & kripto real-time. Port dari PoC vanilla JS (`us-stock-dashboard.html`) ke:
 
 - `server/` — Rust + Axum + Tokio. Proxy ke Finnhub; API key cuma ada di server.
 - `web/` — React + TypeScript + Vite.

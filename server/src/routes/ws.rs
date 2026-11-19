@@ -1,7 +1,9 @@
 //! `GET /ws`: tick real-time ke browser.
 //!
 //! Client → server: `{"type":"subscribe","symbol":"AAPL"}` / `{"type":"unsubscribe",...}`
-//! Server → client: `{"type":"trades","data":[{symbol,price,timestamp,volume}]}`
+//! Server → client: `{"type":"history","symbol":"AAPL","points":[[t, harga], ...]}`
+//!                  (sekali, tepat setelah subscribe berhasil, sebelum trade simbol itu)
+//!                  `{"type":"trades","data":[{symbol,price,timestamp,volume}]}`
 //!                  `{"type":"error","symbol":"AAPL","message":"..."}`
 
 use std::sync::Arc;
@@ -19,6 +21,7 @@ use tokio::sync::broadcast::error::RecvError;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
+    history::{Point, Recorder},
     hub::{Hub, Subscription},
     market::{Trade, normalize_symbol},
     state::AppState,
@@ -36,6 +39,11 @@ enum ClientMessage {
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum ServerMessage<'a> {
+    /// Riwayat sparkline 30 menit terakhir (lihat `history.rs`), urut dari yang paling lama.
+    History {
+        symbol: String,
+        points: Vec<Point>,
+    },
     Trades {
         data: Vec<&'a Trade>,
     },
@@ -50,13 +58,25 @@ pub async fn ws(upgrade: WebSocketUpgrade, State(state): State<AppState>) -> Res
     // jadi kita lacak sendiri lewat TaskTracker supaya `main` bisa menunggunya.
     let tasks = state.tasks.clone();
     upgrade.on_upgrade(move |socket| {
-        tasks.track_future(client(socket, state.hub, state.db, state.shutdown))
+        tasks.track_future(client(
+            socket,
+            state.hub,
+            state.recorder,
+            state.db,
+            state.shutdown,
+        ))
     })
 }
 
 /// Satu task per browser. Selesai saat browser menutup koneksi, kirim gagal, atau server
 /// shutdown; `subscription` di-drop di akhir dan melepas semua simbolnya.
-async fn client(mut socket: WebSocket, hub: Arc<Hub>, db: PgPool, shutdown: CancellationToken) {
+async fn client(
+    mut socket: WebSocket,
+    hub: Arc<Hub>,
+    recorder: Arc<Recorder>,
+    db: PgPool,
+    shutdown: CancellationToken,
+) {
     let mut trades = hub.trades();
     let mut subscription = hub.subscription();
     tracing::debug!("ws client terhubung");
@@ -75,7 +95,17 @@ async fn client(mut socket: WebSocket, hub: Arc<Hub>, db: PgPool, shutdown: Canc
                 let Some(Ok(message)) = incoming else { break };
                 // Close/Ping/Pong/Binary diabaikan; Ping dijawab otomatis oleh axum.
                 let Message::Text(text) = message else { continue };
-                if let Err(reply) = handle_command(text.as_str(), &mut subscription, &db).await
+                // Riwayat dikirim di sini, sebelum loop sempat meneruskan trade simbol itu:
+                // satu task, satu koneksi, jadi urutannya pasti.
+                let reply = match handle_command(text.as_str(), &mut subscription, &db).await {
+                    Ok(Some(symbol)) => Some(ServerMessage::History {
+                        points: recorder.points(&symbol),
+                        symbol,
+                    }),
+                    Ok(None) => None,
+                    Err(error) => Some(error),
+                };
+                if let Some(reply) = reply
                     && send(&mut socket, &reply).await.is_err()
                 {
                     break;
@@ -103,6 +133,7 @@ async fn client(mut socket: WebSocket, hub: Arc<Hub>, db: PgPool, shutdown: Canc
     tracing::debug!("ws client terputus");
 }
 
+/// `Ok(Some(simbol))` = subscribe baru berhasil, kirim riwayatnya.
 /// `Err` berisi pesan error yang perlu dikirim balik ke client.
 ///
 /// Subscribe cuma untuk simbol di watchlist: batas 50 simbol live berlaku untuk seluruh
@@ -112,7 +143,7 @@ async fn handle_command(
     text: &str,
     subscription: &mut Subscription,
     db: &PgPool,
-) -> Result<(), ServerMessage<'static>> {
+) -> Result<Option<String>, ServerMessage<'static>> {
     let error = |symbol: Option<String>, message: String| ServerMessage::Error { symbol, message };
 
     let command: ClientMessage =
@@ -135,15 +166,16 @@ async fn handle_command(
                     return Err(error(Some(normalized), "kesalahan server".to_string()));
                 }
             }
-            subscription
-                .add(&normalized)
-                .map_err(|err| error(Some(normalized), err.to_string()))
+            match subscription.add(&normalized) {
+                Ok(()) => Ok(Some(normalized)),
+                Err(err) => Err(error(Some(normalized), err.to_string())),
+            }
         }
         ClientMessage::Unsubscribe { symbol } => {
             if let Some(normalized) = normalize_symbol(&symbol) {
                 subscription.remove(&normalized);
             }
-            Ok(())
+            Ok(None)
         }
     }
 }

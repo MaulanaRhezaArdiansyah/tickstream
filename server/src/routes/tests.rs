@@ -5,7 +5,10 @@
 //! watchlist ikut ada), lalu membuangnya. Butuh Postgres yang jalan dan `DATABASE_URL`.
 //! Finnhub diganti `FakeMarket`: test nggak boleh bergantung pada jaringan atau kuota API.
 
-use std::sync::{Arc, Mutex};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use async_trait::async_trait;
 use axum::{
@@ -13,10 +16,12 @@ use axum::{
     body::Body,
     http::{Request, StatusCode, header},
 };
+use futures_util::{SinkExt, StreamExt};
 use http_body_util::BodyExt;
 use serde_json::{Value, json};
 use sqlx::PgPool;
-use tokio::sync::broadcast;
+use tokio::{net::TcpStream, sync::broadcast};
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, tungstenite::Message};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tower::ServiceExt;
 
@@ -24,7 +29,7 @@ use crate::{
     history::Recorder,
     hub::Hub,
     market::{
-        MarketDataSource, MarketError, MarketStatus, Profile, Quote, SymbolInfo, SymbolKind,
+        MarketDataSource, MarketError, MarketStatus, Profile, Quote, SymbolInfo, SymbolKind, Trade,
         TradeFeed,
     },
     state::AppState,
@@ -501,4 +506,70 @@ async fn watchlist_changes_follow_upstream(db: PgPool) {
     let (status, _) = call(&app, "DELETE", "/api/watchlist/AMD", None).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
     assert_eq!(feed.log().last().map(String::as_str), Some("-AMD"));
+}
+
+type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+
+/// `/ws` nggak bisa diuji lewat `oneshot` (butuh upgrade koneksi sungguhan), jadi server
+/// dijalankan di port acak dan didatangi client WebSocket beneran.
+async fn connect_ws(state: AppState) -> Socket {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let app = super::router(state, None);
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let (socket, _) = tokio_tungstenite::connect_async(format!("ws://{addr}/ws"))
+        .await
+        .unwrap();
+    socket
+}
+
+async fn ws_send(socket: &mut Socket, message: Value) {
+    socket
+        .send(Message::text(message.to_string()))
+        .await
+        .unwrap();
+}
+
+async fn ws_next(socket: &mut Socket) -> Value {
+    let message = tokio::time::timeout(Duration::from_secs(2), socket.next())
+        .await
+        .expect("server harusnya mengirim pesan")
+        .expect("koneksi masih terbuka")
+        .unwrap();
+    serde_json::from_str(message.to_text().unwrap()).unwrap()
+}
+
+#[sqlx::test]
+async fn ws_sends_history_after_subscribe(db: PgPool) {
+    let state = state(db);
+    state.recorder.record(&[Trade {
+        symbol: "AAPL".into(),
+        price: 100.5,
+        timestamp: 20_000,
+        volume: 1.0,
+    }]);
+    let mut socket = connect_ws(state).await;
+
+    ws_send(&mut socket, json!({"type": "subscribe", "symbol": "aapl"})).await;
+    assert_eq!(
+        ws_next(&mut socket).await,
+        json!({"type": "history", "symbol": "AAPL", "points": [[20000, 100.5]]})
+    );
+
+    // Simbol watchlist yang belum punya riwayat tetap dapat pesan, dengan titik kosong.
+    ws_send(&mut socket, json!({"type": "subscribe", "symbol": "NVDA"})).await;
+    assert_eq!(
+        ws_next(&mut socket).await,
+        json!({"type": "history", "symbol": "NVDA", "points": []})
+    );
+
+    // Subscribe yang ditolak cuma dapat error. Pesan berikutnya sudah milik MSFT,
+    // jadi nggak ada history yang terselip untuk AMD.
+    ws_send(&mut socket, json!({"type": "subscribe", "symbol": "AMD"})).await;
+    assert_eq!(ws_next(&mut socket).await["type"], "error");
+    ws_send(&mut socket, json!({"type": "subscribe", "symbol": "MSFT"})).await;
+    assert_eq!(
+        ws_next(&mut socket).await,
+        json!({"type": "history", "symbol": "MSFT", "points": []})
+    );
 }

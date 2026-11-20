@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use metrics_exporter_prometheus::PrometheusHandle;
 use secrecy::SecretString;
 use sqlx::PgPool;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
@@ -24,4 +25,6 @@ pub struct AppState {
     pub webhook_secret: Option<Arc<SecretString>>,
     /// Token pemilik untuk mengubah watchlist; `None` = read-only.
     pub admin_token: Option<Arc<SecretString>>,
+    /// Untuk merender `/metrics`. Murah di-clone (isinya `Arc`).
+    pub metrics: PrometheusHandle,
 }

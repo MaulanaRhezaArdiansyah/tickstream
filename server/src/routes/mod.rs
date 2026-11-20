@@ -9,7 +9,7 @@ mod tests;
 use std::path::Path;
 
 use axum::{
-    Router,
+    Router, middleware,
     routing::{any, delete, get, post},
 };
 use tower_http::{
@@ -24,6 +24,7 @@ use crate::{error::AppError, state::AppState};
 pub fn router(state: AppState, web_dir: Option<&Path>) -> Router {
     let api = Router::new()
         .route("/health", get(health))
+        .route("/metrics", get(crate::metrics::render))
         .route("/api/quote", get(market::quote))
         .route("/api/news", get(market::news))
         .route("/api/profile", get(market::profile))
@@ -49,7 +50,9 @@ pub fn router(state: AppState, web_dir: Option<&Path>) -> Router {
         // Route yang nggak ada juga dibalas JSON, bukan body kosong.
         None => api.fallback(not_found),
     };
-    app.with_state(state)
+    // Dipasang paling akhir supaya fallback (file statis, 404) ikut terukur.
+    app.layer(middleware::from_fn(crate::metrics::track_http))
+        .with_state(state)
 }
 
 async fn health() -> &'static str {

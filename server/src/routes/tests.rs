@@ -154,6 +154,7 @@ fn state_with_trades(
         tasks: TaskTracker::new(),
         webhook_secret: None,
         admin_token: Some(Arc::new(ADMIN.into())),
+        metrics: crate::metrics::builder().build_recorder().handle(),
     };
     (state, trades)
 }
@@ -647,4 +648,125 @@ async fn ws_forwards_only_subscribed_trades_after_history(db: PgPool) {
             {"symbol": "AAPL", "price": 101.0, "timestamp": 30000, "volume": 1.0}
         ]})
     );
+}
+
+/// GET `/metrics` dengan token opsional; kembalikan status, content-type, dan body teks.
+async fn get_metrics(app: &Router, token: Option<&str>) -> (StatusCode, String, String) {
+    let mut request = Request::builder().uri("/metrics");
+    if let Some(token) = token {
+        request = request.header(header::AUTHORIZATION, format!("Bearer {token}"));
+    }
+    let response = app
+        .clone()
+        .oneshot(request.body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let status = response.status();
+    let content_type = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .map(|value| value.to_str().unwrap().to_string())
+        .unwrap_or_default();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    (
+        status,
+        content_type,
+        String::from_utf8(bytes.to_vec()).unwrap(),
+    )
+}
+
+#[sqlx::test]
+async fn metrics_require_the_owner_token(db: PgPool) {
+    let app = app(db);
+    assert_eq!(get_metrics(&app, None).await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        get_metrics(&app, Some("salah")).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+
+    let (status, content_type, _) = get_metrics(&app, Some(ADMIN)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(content_type.starts_with("text/plain"), "{content_type}");
+}
+
+#[sqlx::test]
+async fn metrics_are_closed_without_admin_token(db: PgPool) {
+    let mut state = state(db);
+    state.admin_token = None;
+    let app = super::router(state, None);
+    assert_eq!(
+        get_metrics(&app, Some(ADMIN)).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+#[sqlx::test]
+async fn metrics_render_what_was_recorded(db: PgPool) {
+    let recorder = crate::metrics::builder().build_recorder();
+    let mut state = state(db);
+    state.metrics = recorder.handle();
+    // Perekam lokal: cuma berlaku di thread test ini, jadi test lain nggak ikut tercatat.
+    let _guard = ::metrics::set_default_local_recorder(&recorder);
+    crate::metrics::record_start_time();
+
+    let app = super::router(state, None);
+    let (_, _, body) = get_metrics(&app, Some(ADMIN)).await;
+    assert!(body.contains("tickstream_start_time_seconds"), "{body}");
+}
+
+#[sqlx::test]
+async fn http_requests_are_counted_by_route_pattern(db: PgPool) {
+    let m = crate::metrics::testing::capture();
+    let app = app(db);
+
+    call(&app, "GET", "/api/quote?symbol=AAPL", None).await;
+    call_as(&app, None, "DELETE", "/api/watchlist/AAPL", None).await;
+    call(&app, "GET", "/tidak-ada", None).await;
+
+    let requests = "tickstream_http_requests_total";
+    assert_eq!(
+        m.counter(requests, &[("route", "/api/quote"), ("status", "200")]),
+        1
+    );
+    // Pola route, bukan path asli: simbol nggak pernah jadi label.
+    assert_eq!(
+        m.counter(
+            requests,
+            &[("route", "/api/watchlist/{symbol}"), ("status", "401")]
+        ),
+        1
+    );
+    assert_eq!(
+        m.counter(requests, &[("route", "other"), ("status", "404")]),
+        1
+    );
+    assert_eq!(
+        m.histogram_len(
+            "tickstream_http_request_duration_seconds",
+            &[("route", "/api/quote")]
+        ),
+        1
+    );
+}
+
+/// Tunggu sampai gauge `name` bernilai `expected` (maks 1 detik): koneksi WS dibuka dan
+/// ditutup oleh task server, bukan oleh test, jadi angkanya berubah sedikit terlambat.
+async fn wait_for_gauge(m: &crate::metrics::testing::Captured, name: &str, expected: f64) {
+    for _ in 0..100 {
+        if m.gauge(name, &[]) == expected {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("{name} = {}, harusnya {expected}", m.gauge(name, &[]));
+}
+
+#[sqlx::test]
+async fn ws_clients_go_up_and_back_down(db: PgPool) {
+    let m = crate::metrics::testing::capture();
+    let mut socket = connect_ws(state(db)).await;
+    wait_for_gauge(&m, "tickstream_ws_clients", 1.0).await;
+
+    socket.close(None).await.unwrap();
+    wait_for_gauge(&m, "tickstream_ws_clients", 0.0).await;
 }

@@ -14,6 +14,7 @@ use crate::market::{
     CompanyNews, MarketDataSource, MarketError, MarketStatus, NewsArticle, Profile, Quote,
     SymbolInfo, SymbolKind, iso_date, normalize_symbol, prepare_news,
 };
+use crate::metrics::{Outcome, finnhub_request};
 
 const BASE_URL: &str = "https://finnhub.io/api/v1";
 
@@ -71,7 +72,10 @@ impl FinnhubRest {
     async fn acquire_news(&self) -> Result<(), MarketError> {
         tokio::time::timeout(NEWS_MAX_WAIT, self.news_limiter.until_ready())
             .await
-            .map_err(|_| MarketError::RateLimited)
+            .map_err(|_| {
+                finnhub_request("/company-news", Outcome::LimitedLocally);
+                MarketError::RateLimited
+            })
     }
 
     async fn get_json<T: DeserializeOwned>(
@@ -82,18 +86,40 @@ impl FinnhubRest {
         self.get_json_within(path, query, REQUEST_TIMEOUT).await
     }
 
-    /// GET ke Finnhub lalu parse JSON jadi `T`: tunggu jatah limiter, kirim,
-    /// terjemahkan status HTTP ke `MarketError`. Tipe `T` ditentukan pemanggil.
+    /// GET ke Finnhub lalu parse JSON jadi `T`: tunggu jatah limiter, kirim, lalu catat
+    /// hasilnya per endpoint (tepat sekali per panggilan). Tipe `T` ditentukan pemanggil.
     async fn get_json_within<T: DeserializeOwned>(
         &self,
         path: &str,
         query: &[(&str, &str)],
         timeout: Duration,
     ) -> Result<T, MarketError> {
-        tokio::time::timeout(MAX_WAIT, self.limiter.until_ready())
+        if tokio::time::timeout(MAX_WAIT, self.limiter.until_ready())
             .await
-            .map_err(|_| MarketError::RateLimited)?;
+            .is_err()
+        {
+            finnhub_request(path, Outcome::LimitedLocally);
+            return Err(MarketError::RateLimited);
+        }
 
+        let result = self.send(path, query, timeout).await;
+        let outcome = match &result {
+            Ok(_) => Outcome::Ok,
+            // Di sini cuma bisa datang dari 429 Finnhub: limiter kita sudah lewat di atas.
+            Err(MarketError::RateLimited) => Outcome::RateLimited,
+            Err(_) => Outcome::Error,
+        };
+        finnhub_request(path, outcome);
+        result
+    }
+
+    /// Kirim satu GET dan terjemahkan status HTTP ke `MarketError`.
+    async fn send<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        query: &[(&str, &str)],
+        timeout: Duration,
+    ) -> Result<T, MarketError> {
         tracing::debug!(path, ?query, "finnhub request");
         let res = self
             .http
@@ -239,6 +265,7 @@ mod tests {
     /// tiga request bersamaan tetap cuma dapat satu slot; sisanya ditolak.
     #[tokio::test]
     async fn news_limiter_waits_for_the_next_slot_after_the_burst() {
+        let m = crate::metrics::testing::capture();
         let rest = FinnhubRest::new(&SecretString::from("test")).unwrap();
         for _ in 0..5 {
             rest.acquire_news().await.unwrap();
@@ -252,6 +279,17 @@ mod tests {
         assert_eq!(
             granted, 1,
             "satu slot terisi dalam waktu tunggu, dua ditolak"
+        );
+        // Yang ditolak limiter kita sendiri tercatat terpisah dari 429 milik Finnhub.
+        assert_eq!(
+            m.counter(
+                "tickstream_finnhub_requests_total",
+                &[
+                    ("endpoint", "/company-news"),
+                    ("outcome", "limited_locally")
+                ]
+            ),
+            2
         );
     }
 

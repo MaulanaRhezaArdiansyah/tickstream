@@ -77,6 +77,7 @@ async fn client(
     db: PgPool,
     shutdown: CancellationToken,
 ) {
+    let _client = crate::metrics::WsClient::connected();
     let mut trades = hub.trades();
     let mut subscription = hub.subscription();
     tracing::debug!("ws client terhubung");

@@ -49,7 +49,17 @@ pub fn install() -> anyhow::Result<PrometheusHandle> {
     let handle = builder().install_recorder()?;
     describe();
     record_start_time();
+    start_series_at_zero();
     Ok(handle)
+}
+
+/// Munculkan baris feed dan klien dengan nilai 0 sejak server hidup. Tanpa ini barisnya
+/// baru ada setelah event pertama, jadi "Finnhub belum pernah konek" (misalnya kalah rebutan
+/// socket dengan proses lain yang pakai key yang sama) terlihat sama dengan "nggak dicatat".
+fn start_series_at_zero() {
+    ::metrics::gauge!(WS_CLIENTS).set(0.0);
+    ::metrics::counter!(FINNHUB_TRADES).increment(0);
+    ::metrics::counter!(FINNHUB_CONNECTS).increment(0);
 }
 
 /// Teks `# HELP` yang ikut dirender di atas tiap metrik.
@@ -255,6 +265,26 @@ pub mod testing {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Sesaat setelah deploy, sebelum ada event apa pun: baris feed dan klien sudah ada
+    /// dengan nilai 0, supaya "belum pernah konek" beda dari "nggak dicatat".
+    #[test]
+    fn feed_and_client_series_start_at_zero() {
+        let recorder = builder().build_recorder();
+        let handle = recorder.handle();
+        ::metrics::with_local_recorder(&recorder, start_series_at_zero);
+        let text = handle.render();
+        for line in [
+            "tickstream_ws_clients 0",
+            "tickstream_finnhub_trades_total 0",
+            "tickstream_finnhub_ws_connects_total 0",
+        ] {
+            assert!(
+                text.lines().any(|l| l == line),
+                "nggak ada `{line}` di:\n{text}"
+            );
+        }
+    }
 
     #[test]
     fn duration_is_a_histogram() {

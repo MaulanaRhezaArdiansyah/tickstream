@@ -53,6 +53,27 @@ it('bucket 5 menit dibulatkan ke bawah', () => {
   })
 })
 
+it.each([0, -5, Number.NaN, Number.POSITIVE_INFINITY])('harga %s diabaikan', (price) => {
+  const last = { time: 60, open: 10, high: 12, low: 9, close: 11 }
+  expect(applyTick(last, price, 61_000, 60, 61_000)).toBeNull()
+})
+
+it('timestamp yang bukan angka diabaikan', () => {
+  expect(applyTick(undefined, 10, Number.NaN, 60, 61_000)).toBeNull()
+})
+
+it('tick lebih dari 60 detik ke depan diabaikan', () => {
+  const now = 1_000_000
+  const last = { time: 960, open: 10, high: 12, low: 9, close: 11 }
+  expect(applyTick(last, 13, now + 60_001, 60, now)).toBeNull()
+})
+
+it('tick tepat 60 detik ke depan masih diterima', () => {
+  const now = 1_000_000
+  const last = { time: 960, open: 10, high: 12, low: 9, close: 11 }
+  expect(applyTick(last, 13, now + 60_000, 60, now)?.time).toBe(1020)
+})
+
 it('format waktu WIB', () => {
   expect(formatWibTime(1_700_000_000)).toBe('05:13')
   expect(formatWibDay(1_700_000_000)).toBe('15 Nov')

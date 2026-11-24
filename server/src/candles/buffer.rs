@@ -100,13 +100,9 @@ impl CandleBuffer {
         enforce_cap(&mut entries);
     }
 
-    pub fn len(&self) -> usize {
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
         self.entries.lock().unwrap().len()
-    }
-
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
     }
 }
 
@@ -188,7 +184,6 @@ mod tests {
             }
         );
         assert_eq!(buf.len(), 0);
-        assert!(buf.is_empty());
     }
 
     #[test]

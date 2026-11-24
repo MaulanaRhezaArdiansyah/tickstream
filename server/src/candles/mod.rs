@@ -2,10 +2,8 @@ pub mod buffer;
 pub mod query;
 pub mod store;
 
-#[allow(unused_imports)]
-pub use buffer::{CandleBuffer, MAX_PENDING, PendingCandle};
-#[allow(unused_imports)]
-pub use query::{CandleCache, CandleRange, CandleRow, CandleSeries, load};
+pub use buffer::{CandleBuffer, PendingCandle};
+pub use query::{CandleCache, CandleRange, CandleSeries};
 
 use std::{sync::Arc, time::Duration};
 

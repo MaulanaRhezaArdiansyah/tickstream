@@ -4,6 +4,7 @@ use axum::{Json, extract::State, http::header, response::IntoResponse};
 use serde::Deserialize;
 
 use crate::{
+    candles::{CandleRange, CandleSeries},
     error::AppError,
     extract::AppQuery,
     market::{CompanyNews, MarketStatus, Profile, Quote, SymbolInfo, normalize_symbol},
@@ -14,6 +15,12 @@ use crate::{
 #[derive(Deserialize)]
 pub struct SymbolQuery {
     symbol: String,
+}
+
+#[derive(Deserialize)]
+pub struct CandleQuery {
+    symbol: String,
+    range: CandleRange,
 }
 
 /// `GET /api/quote?symbol=NVDA`
@@ -32,6 +39,17 @@ pub async fn news(
 ) -> Result<Json<CompanyNews>, AppError> {
     let symbol = watched_symbol(&state, &params.symbol).await?;
     Ok(Json(state.market.company_news(&symbol).await?))
+}
+
+/// `GET /api/candles?symbol=NVDA&range=1d`
+pub async fn candles(
+    State(state): State<AppState>,
+    AppQuery(params): AppQuery<CandleQuery>,
+) -> Result<Json<Arc<CandleSeries>>, AppError> {
+    let symbol = watched_symbol(&state, &params.symbol).await?;
+    Ok(Json(
+        state.candles.get(&state.db, &symbol, params.range).await?,
+    ))
 }
 
 /// `GET /api/profile?symbol=NVDA`

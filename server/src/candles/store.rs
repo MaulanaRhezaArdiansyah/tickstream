@@ -81,8 +81,6 @@ mod tests {
     const MINUTE_S: i64 = 1_700_000_040;
 
     fn candle(
-        symbol: &str,
-        minute_s: i64,
         open: f64,
         high: f64,
         low: f64,
@@ -91,8 +89,8 @@ mod tests {
         last_trade_ms: i64,
     ) -> PendingCandle {
         PendingCandle {
-            symbol: symbol.to_string(),
-            minute_s,
+            symbol: "NVDA".to_string(),
+            minute_s: MINUTE_S,
             open,
             high,
             low,
@@ -121,7 +119,7 @@ mod tests {
 
     #[sqlx::test]
     async fn upsert_inserts_a_candle(db: PgPool) {
-        let c = candle("NVDA", MINUTE_S, 10.0, 12.0, 9.0, 11.0, 5.0, 2000);
+        let c = candle(10.0, 12.0, 9.0, 11.0, 5.0, 2000);
         upsert(&db, &[c]).await.unwrap();
 
         let row = fetch_candle(&db, "NVDA", MINUTE_S).await;
@@ -130,10 +128,10 @@ mod tests {
 
     #[sqlx::test]
     async fn second_flush_merges(db: PgPool) {
-        let first = candle("NVDA", MINUTE_S, 10.0, 12.0, 9.0, 11.0, 5.0, 2000);
+        let first = candle(10.0, 12.0, 9.0, 11.0, 5.0, 2000);
         upsert(&db, &[first]).await.unwrap();
 
-        let second = candle("NVDA", MINUTE_S, 50.0, 13.0, 8.0, 14.0, 1.0, 3000);
+        let second = candle(50.0, 13.0, 8.0, 14.0, 1.0, 3000);
         upsert(&db, &[second]).await.unwrap();
 
         let row = fetch_candle(&db, "NVDA", MINUTE_S).await;
@@ -142,10 +140,10 @@ mod tests {
 
     #[sqlx::test]
     async fn late_trade_keeps_close(db: PgPool) {
-        let first = candle("NVDA", MINUTE_S, 10.0, 12.0, 9.0, 11.0, 5.0, 3000);
+        let first = candle(10.0, 12.0, 9.0, 11.0, 5.0, 3000);
         upsert(&db, &[first]).await.unwrap();
 
-        let late = candle("NVDA", MINUTE_S, 50.0, 99.0, 10.0, 99.0, 1.0, 1000);
+        let late = candle(50.0, 99.0, 10.0, 99.0, 1.0, 1000);
         upsert(&db, &[late]).await.unwrap();
 
         let row = fetch_candle(&db, "NVDA", MINUTE_S).await;

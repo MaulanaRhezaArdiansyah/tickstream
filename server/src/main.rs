@@ -110,6 +110,7 @@ async fn main() -> anyhow::Result<()> {
         market: Arc::new(MarketCache::new(finnhub)),
         hub,
         recorder,
+        candles: candles::CandleCache::new(),
         db: db.clone(),
         shutdown: shutdown.clone(),
         tasks: tasks.clone(),

@@ -26,6 +26,7 @@ use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tower::ServiceExt;
 
 use crate::{
+    candles::CandleCache,
     history::Recorder,
     hub::Hub,
     market::{
@@ -148,6 +149,7 @@ fn state_with_trades(
     let state = AppState {
         market: Arc::new(FakeMarket),
         recorder: Recorder::new(&hub),
+        candles: CandleCache::new(),
         hub,
         db,
         shutdown: CancellationToken::new(),
@@ -769,4 +771,88 @@ async fn ws_clients_go_up_and_back_down(db: PgPool) {
 
     socket.close(None).await.unwrap();
     wait_for_gauge(&m, "tickstream_ws_clients", 0.0).await;
+}
+
+// ---- candles ----
+
+#[sqlx::test]
+async fn candles_returns_the_series(db: PgPool) {
+    sqlx::query(
+        "INSERT INTO candles (symbol, minute, open, high, low, close, volume, last_trade_ms)
+         VALUES ('NVDA', TIMESTAMPTZ '2026-11-23 15:00:00+00', 130.1, 131.0, 129.9, 130.7, 10.0, 1)",
+    )
+    .execute(&db)
+    .await
+    .unwrap();
+
+    let (status, body) = call_as(
+        &app(db),
+        None,
+        "GET",
+        "/api/candles?symbol=nvda&range=1d",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["symbol"], "NVDA");
+    assert_eq!(body["range"], "1d");
+    assert_eq!(body["bucketSeconds"], 60);
+    let rows = body["candles"].as_array().unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].as_array().unwrap().len(), 5);
+}
+
+#[sqlx::test]
+async fn candles_empty_for_watched_symbol(db: PgPool) {
+    let (status, body) = call_as(
+        &app(db),
+        None,
+        "GET",
+        "/api/candles?symbol=NVDA&range=1d",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["candles"], json!([]));
+}
+
+#[sqlx::test]
+async fn candles_rejects_bad_range(db: PgPool) {
+    let app = app(db);
+    for uri in [
+        "/api/candles?symbol=NVDA&range=1w",
+        "/api/candles?symbol=NVDA",
+    ] {
+        let (status, _) = call_as(&app, None, "GET", uri, None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{uri}");
+    }
+}
+
+#[sqlx::test]
+async fn candles_rejects_unwatched_symbol(db: PgPool) {
+    let (status, _) = call_as(
+        &app(db),
+        None,
+        "GET",
+        "/api/candles?symbol=AMD&range=1d",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[sqlx::test]
+async fn candles_accepts_encoded_crypto_symbol(db: PgPool) {
+    let (status, body) = call_as(
+        &app(db),
+        None,
+        "GET",
+        "/api/candles?symbol=BINANCE%3ABTCUSDT&range=5d",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["symbol"], "BINANCE:BTCUSDT");
+    assert_eq!(body["range"], "5d");
+    assert_eq!(body["bucketSeconds"], 300);
 }

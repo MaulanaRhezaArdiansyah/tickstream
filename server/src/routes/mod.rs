@@ -27,6 +27,7 @@ pub fn router(state: AppState, web_dir: Option<&Path>) -> Router {
         .route("/metrics", get(crate::metrics::render))
         .route("/api/quote", get(market::quote))
         .route("/api/news", get(market::news))
+        .route("/api/candles", get(market::candles))
         .route("/api/profile", get(market::profile))
         .route("/api/market-status", get(market::market_status))
         // ±11 ribu baris (±800 KB JSON); gzip memangkasnya jadi sekitar seperlimanya.

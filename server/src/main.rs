@@ -1,4 +1,5 @@
 mod auth;
+mod candles;
 mod config;
 mod error;
 mod extract;

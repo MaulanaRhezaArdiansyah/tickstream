@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO candles (symbol, minute, open, high, low, close, volume, last_trade_ms)\n         SELECT s, to_timestamp(m::float8), o, h, l, c, v, t\n         FROM UNNEST($1::text[], $2::bigint[], $3::float8[], $4::float8[],\n                     $5::float8[], $6::float8[], $7::float8[], $8::bigint[])\n              AS input(s, m, o, h, l, c, v, t)\n         ON CONFLICT (symbol, minute) DO UPDATE SET\n             high = GREATEST(candles.high, EXCLUDED.high),\n             low = LEAST(candles.low, EXCLUDED.low),\n             volume = candles.volume + EXCLUDED.volume,\n             close = CASE WHEN EXCLUDED.last_trade_ms >= candles.last_trade_ms\n                          THEN EXCLUDED.close ELSE candles.close END,\n             last_trade_ms = GREATEST(candles.last_trade_ms, EXCLUDED.last_trade_ms)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Int8Array",
+        "Float8Array",
+        "Float8Array",
+        "Float8Array",
+        "Float8Array",
+        "Float8Array",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "57b711351e58033f152efc0ff0886735e380c7a65ddcdc32e90ceee1826bd479"
+}

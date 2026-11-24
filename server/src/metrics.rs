@@ -29,6 +29,7 @@ const CACHE_REQUESTS: &str = "tickstream_cache_requests_total";
 const FINNHUB_REQUESTS: &str = "tickstream_finnhub_requests_total";
 const HTTP_REQUESTS: &str = "tickstream_http_requests_total";
 const HTTP_DURATION: &str = "tickstream_http_request_duration_seconds";
+const CANDLE_FLUSHES: &str = "tickstream_candle_flushes_total";
 
 /// Batas bucket lama respons, dalam detik. Tanpa ini exporter merender histogram sebagai
 /// summary (kuantil), yang nggak bisa dijumlahkan Prometheus/Grafana.
@@ -86,6 +87,10 @@ fn describe() {
         ::metrics::Unit::Seconds,
         "Lama respons per pola route"
     );
+    ::metrics::describe_counter!(
+        CANDLE_FLUSHES,
+        "Hasil flush buffer candle ke Postgres (ok atau error)"
+    );
 }
 
 pub fn record_start_time() {
@@ -125,6 +130,12 @@ impl Drop for WsClient {
     fn drop(&mut self) {
         ::metrics::gauge!(WS_CLIENTS).decrement(1.0);
     }
+}
+
+/// Satu percobaan flush buffer candle ke Postgres (`outcome` = `ok` atau `error`).
+pub fn candle_flush(ok: bool) {
+    let outcome = if ok { "ok" } else { "error" };
+    ::metrics::counter!(CANDLE_FLUSHES, "outcome" => outcome).increment(1);
 }
 
 /// Satu pencarian di cache `cache` (`quote`, `profile`, `market_status`, `news`, `symbols`).

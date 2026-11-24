@@ -31,6 +31,7 @@ interface IntradayChartProps {
  */
 export default function IntradayChart({ symbol, live, connection }: IntradayChartProps) {
   const [range, setRange] = useState<CandleRange>('1d')
+  const [liveKey, setLiveKey] = useState<string | null>(null)
   const { state, retry } = useCandles(symbol, range, connection)
 
   const containerRef = useRef<HTMLDivElement>(null)
@@ -135,7 +136,20 @@ export default function IntradayChart({ symbol, live, connection }: IntradayChar
     series.update({ ...next, time: next.time as UTCTimestamp })
   }, [live, state, symbol])
 
-  const isEmpty = state.status === 'ok' && state.series.candles.length === 0
+  // Hari pertama rilis API masih kosong, tapi tick live sudah menggambar candle. Pakai pola
+  // "adjust state saat render" supaya pesan kosong hilang tanpa setState di dalam effect.
+  const seriesKey = state.status === 'ok' ? `${state.series.symbol}\0${state.series.range}` : null
+  const canDrawLive =
+    state.status === 'ok' &&
+    state.series.symbol === symbol &&
+    live !== undefined &&
+    applyTick(undefined, live.price, live.timestamp, state.series.bucketSeconds) !== null
+  if (canDrawLive && liveKey !== seriesKey) {
+    setLiveKey(seriesKey)
+  }
+
+  const isEmpty =
+    state.status === 'ok' && state.series.candles.length === 0 && liveKey !== seriesKey
   const ariaLabel = `Grafik harga ${symbol}, ${range === '1d' ? '1 hari' : '5 hari'}`
 
   return (

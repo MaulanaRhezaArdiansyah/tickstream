@@ -113,6 +113,38 @@ it('kosong menampilkan pesan', () => {
   ).not.toBeNull()
 })
 
+it('pesan kosong hilang setelah tick live pertama tergambar', () => {
+  const empty = 'Belum ada data grafik. Data mulai terkumpul saat ada transaksi.'
+  currentState = { status: 'ok', series: sampleSeries('NVDA', []) }
+  const { rerender } = render(<IntradayChart symbol="NVDA" live={undefined} connection="live" />)
+  expect(screen.queryByText(empty)).not.toBeNull()
+
+  rerender(<IntradayChart symbol="NVDA" live={tick(103, 1_700_000_045_000)} connection="live" />)
+  expect(seriesMock.update).toHaveBeenCalledTimes(1)
+  expect(screen.queryByText(empty)).toBeNull()
+})
+
+it('tick rusak nggak menghilangkan pesan kosong', () => {
+  const empty = 'Belum ada data grafik. Data mulai terkumpul saat ada transaksi.'
+  currentState = { status: 'ok', series: sampleSeries('NVDA', []) }
+  render(<IntradayChart symbol="NVDA" live={tick(-1, 1_700_000_045_000)} connection="live" />)
+  expect(seriesMock.update).not.toHaveBeenCalled()
+  expect(screen.queryByText(empty)).not.toBeNull()
+})
+
+it('pesan kosong tetap muncul untuk simbol lain yang belum ada tick', () => {
+  const empty = 'Belum ada data grafik. Data mulai terkumpul saat ada transaksi.'
+  currentState = { status: 'ok', series: sampleSeries('NVDA', []) }
+  const { rerender } = render(
+    <IntradayChart symbol="NVDA" live={tick(103, 1_700_000_045_000)} connection="live" />,
+  )
+  expect(screen.queryByText(empty)).toBeNull()
+
+  currentState = { status: 'ok', series: sampleSeries('AAPL', []) }
+  rerender(<IntradayChart symbol="AAPL" live={undefined} connection="live" />)
+  expect(screen.queryByText(empty)).not.toBeNull()
+})
+
 it('error menampilkan pesan dan Coba lagi memanggil retry', () => {
   currentState = { status: 'error', message: 'timeout' }
   render(<IntradayChart symbol="NVDA" live={undefined} connection="live" />)

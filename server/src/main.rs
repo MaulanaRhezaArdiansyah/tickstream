@@ -1,4 +1,5 @@
 mod auth;
+mod candles;
 mod config;
 mod error;
 mod extract;
@@ -98,11 +99,18 @@ async fn main() -> anyhow::Result<()> {
         .await
         .context("gagal membaca watchlist untuk recorder")?;
     Arc::clone(&recorder).spawn(hub.trades(), shutdown.clone(), &tasks);
+    candles::spawn_flusher(
+        recorder.candle_buffer(),
+        db.clone(),
+        shutdown.clone(),
+        &tasks,
+    );
 
     let state = AppState {
         market: Arc::new(MarketCache::new(finnhub)),
         hub,
         recorder,
+        candles: candles::CandleCache::new(),
         db: db.clone(),
         shutdown: shutdown.clone(),
         tasks: tasks.clone(),

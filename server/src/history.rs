@@ -11,6 +11,7 @@
 use std::{
     collections::{HashMap, VecDeque},
     sync::{Arc, Mutex},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use sqlx::PgPool;
@@ -18,6 +19,7 @@ use tokio::sync::broadcast::{self, error::RecvError};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 use crate::{
+    candles::CandleBuffer,
     hub::{Hub, HubError, Subscription},
     market::{Trade, TradeBatch},
     watchlist,
@@ -84,6 +86,7 @@ impl History {
 /// watchlist.
 pub struct Recorder {
     history: History,
+    candles: Arc<CandleBuffer>,
     subscription: Mutex<Subscription>,
 }
 
@@ -91,8 +94,13 @@ impl Recorder {
     pub fn new(hub: &Arc<Hub>) -> Arc<Self> {
         Arc::new(Self {
             history: History::default(),
+            candles: Arc::new(CandleBuffer::default()),
             subscription: Mutex::new(hub.subscription()),
         })
+    }
+
+    pub fn candle_buffer(&self) -> Arc<CandleBuffer> {
+        Arc::clone(&self.candles)
     }
 
     pub fn watch(&self, symbol: &str) -> Result<(), HubError> {
@@ -118,11 +126,15 @@ impl Recorder {
     /// siapa pun, termasuk simbol yang baru dihapus tapi masih terbuka di tab pengunjung.
     pub fn record(&self, trades: &[Trade]) {
         let subscription = self.subscription.lock().unwrap();
-        self.history.record(
-            trades
-                .iter()
-                .filter(|trade| subscription.contains(&trade.symbol)),
-        );
+        let watched: Vec<&Trade> = trades
+            .iter()
+            .filter(|trade| subscription.contains(&trade.symbol))
+            .collect();
+        self.history.record(watched.iter().copied());
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX));
+        self.candles.record(watched, now_ms);
     }
 
     /// Dipanggil sekali saat startup. Gagal pantau satu simbol cuma dicatat: server tetap
@@ -332,5 +344,23 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(1), tasks.wait())
             .await
             .expect("recorder berhenti saat shutdown");
+    }
+
+    #[test]
+    fn recorder_buffers_candles_for_watched_symbols_only() {
+        let (recorder, _, _) = recorder();
+        recorder.watch("AAPL").unwrap();
+        let now_ms = i64::try_from(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis(),
+        )
+        .unwrap();
+        recorder.record(&[trade("AAPL", now_ms, 150.0), trade("NVDA", now_ms, 120.0)]);
+
+        let candles = recorder.candle_buffer().take();
+        assert_eq!(candles.len(), 1);
+        assert_eq!(candles[0].symbol, "AAPL");
     }
 }

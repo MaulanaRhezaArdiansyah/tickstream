@@ -138,6 +138,8 @@ export function App() {
               name={snapshots[open]?.name}
               price={ticks[open]?.price ?? snapshots[open]?.quote?.price ?? null}
               prevClose={snapshots[open]?.quote?.prevClose || null}
+              live={ticks[open]}
+              connection={connection}
               state={news[open]}
               onClose={handleClose}
               onRetry={() => load(open)}

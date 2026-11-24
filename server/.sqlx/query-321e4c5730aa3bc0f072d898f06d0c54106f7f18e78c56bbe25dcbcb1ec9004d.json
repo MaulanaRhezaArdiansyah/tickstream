@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT extract(epoch FROM (d::timestamp AT TIME ZONE 'America/New_York'))::bigint AS \"start!\"\n               FROM (\n                   SELECT DISTINCT (minute AT TIME ZONE 'America/New_York')::date AS d\n                   FROM candles\n                   WHERE symbol = $1\n                     AND extract(isodow FROM minute AT TIME ZONE 'America/New_York') < 6\n                     AND (minute AT TIME ZONE 'America/New_York')::time >= TIME '09:30'\n                     AND (minute AT TIME ZONE 'America/New_York')::time <  TIME '16:00'\n               ) dates\n               ORDER BY d DESC\n               OFFSET $2 LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "start!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "321e4c5730aa3bc0f072d898f06d0c54106f7f18e78c56bbe25dcbcb1ec9004d"
+}

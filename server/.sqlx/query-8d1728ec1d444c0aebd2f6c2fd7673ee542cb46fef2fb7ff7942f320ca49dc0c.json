@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM candles WHERE minute < now() - ($1::int * interval '1 day')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8d1728ec1d444c0aebd2f6c2fd7673ee542cb46fef2fb7ff7942f320ca49dc0c"
+}

@@ -5,6 +5,8 @@ import { afterEach, expect, it, vi } from 'vitest'
 import type { NewsState } from '../hooks/useNews'
 import { NewsPanel } from './NewsPanel'
 
+vi.mock('./IntradayChart', () => ({ default: () => null }))
+
 afterEach(cleanup)
 
 const ok = (headline: string): NewsState => ({
@@ -33,6 +35,8 @@ function renderPanel(state: NewsState | undefined, symbol = 'AMD') {
       name="Advanced Micro Devices"
       price={100}
       prevClose={105}
+      live={undefined}
+      connection="live"
       state={state}
       onClose={onClose}
       onRetry={onRetry}
@@ -127,6 +131,8 @@ it('panel menampilkan berita simbolnya sendiri', () => {
       name="NVIDIA"
       price={100}
       prevClose={99}
+      live={undefined}
+      connection="live"
       state={{ status: 'loading' }}
       onClose={() => {}}
       onRetry={() => {}}

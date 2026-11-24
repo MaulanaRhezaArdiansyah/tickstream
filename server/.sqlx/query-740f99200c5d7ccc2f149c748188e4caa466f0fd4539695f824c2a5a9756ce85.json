@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT extract(epoch FROM date_bin($3::int * interval '1 second', minute,\n                                           TIMESTAMPTZ '2000-01-01'))::bigint AS \"t!\",\n                  (array_agg(open ORDER BY minute))[1] AS \"open!\",\n                  max(high) AS \"high!\",\n                  min(low) AS \"low!\",\n                  (array_agg(close ORDER BY minute DESC))[1] AS \"close!\"\n           FROM candles\n           WHERE symbol = $1 AND minute >= to_timestamp($2::float8)\n           GROUP BY 1\n           ORDER BY 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "t!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "open!",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "high!",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "low!",
+        "type_info": "Float8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "close!",
+        "type_info": "Float8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Float8",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "740f99200c5d7ccc2f149c748188e4caa466f0fd4539695f824c2a5a9756ce85"
+}

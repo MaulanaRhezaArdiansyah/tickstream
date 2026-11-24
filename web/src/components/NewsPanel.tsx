@@ -1,11 +1,16 @@
-import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useRef } from 'react'
+import { type KeyboardEvent as ReactKeyboardEvent, Suspense, lazy, useEffect, useRef } from 'react'
 
+import type { ConnectionState } from '../hooks/useLiveTicks'
 import type { NewsState } from '../hooks/useNews'
 import { useNow } from '../hooks/useNow'
 import { fmt, splitSymbol } from '../lib/format'
 import { relativeTime } from '../lib/relativeTime'
+import type { LiveTick } from '../lib/tickStore'
 import { Change } from './QuoteRow'
 import { XIcon } from './XIcon'
+
+// Lazy-load supaya bundle awal papan nggak ikut menanggung ukuran `lightweight-charts`.
+const IntradayChart = lazy(() => import('./IntradayChart'))
 
 /** Sama dengan breakpoint di index.css tempat panel menutupi layar penuh. */
 const FULL_SCREEN = '(max-width: 560px)'
@@ -35,6 +40,8 @@ interface NewsPanelProps {
   /** Harga live yang sama dengan barisnya. */
   price: number | null
   prevClose: number | null
+  live: LiveTick | undefined
+  connection: ConnectionState
   /** `undefined` = belum pernah diambil; tampil sebagai memuat. */
   state: NewsState | undefined
   onClose: () => void
@@ -47,6 +54,8 @@ export function NewsPanel({
   name,
   price,
   prevClose,
+  live,
+  connection,
   state,
   onClose,
   onRetry,
@@ -96,8 +105,9 @@ export function NewsPanel({
         </button>
       </header>
 
-      {/* Tempat grafik intraday (fitur berikutnya). */}
-      <div className="chart-slot" />
+      <Suspense fallback={<div className="chart-slot" aria-hidden="true" />}>
+        <IntradayChart symbol={symbol} live={live} connection={connection} />
+      </Suspense>
 
       <NewsBody state={state} now={now} onRetry={onRetry} />
     </aside>

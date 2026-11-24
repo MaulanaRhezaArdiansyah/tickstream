@@ -65,3 +65,14 @@ export type ServerMessage =
   /** Riwayat sparkline 30 menit: `[awal kelompok 10 detik (Unix ms), harga]`, urut dari lama. */
   | { type: 'history'; symbol: string; points: [number, number][] }
   | { type: 'error'; symbol: string | null; message: string }
+
+export type CandleRange = '1d' | '5d'
+export type CandleRow = [time: number, open: number, high: number, low: number, close: number]
+
+/** Seri candle dari `/api/candles` (lihat `CandleSeries` di server/src/candles/query.rs). */
+export interface CandleSeries {
+  symbol: string
+  range: CandleRange
+  bucketSeconds: number
+  candles: CandleRow[]
+}

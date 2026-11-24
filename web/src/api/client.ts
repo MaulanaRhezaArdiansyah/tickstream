@@ -1,4 +1,12 @@
-import type { CompanyNews, MarketStatus, Profile, Quote, SymbolInfo } from '../types'
+import type {
+  CandleRange,
+  CandleSeries,
+  CompanyNews,
+  MarketStatus,
+  Profile,
+  Quote,
+  SymbolInfo,
+} from '../types'
 
 export class ApiError extends Error {
   readonly status: number
@@ -84,6 +92,12 @@ export const fetchProfile = (symbol: string, signal?: AbortSignal) =>
 
 export const fetchNews = (symbol: string, signal?: AbortSignal) =>
   request<CompanyNews>(`/api/news?${symbolParam(symbol)}`, { signal })
+
+export const fetchCandles = (symbol: string, range: CandleRange, signal?: AbortSignal) =>
+  request<CandleSeries>(
+    `/api/candles?${symbolParam(symbol)}&range=${encodeURIComponent(range)}`,
+    { signal },
+  )
 
 export const fetchMarketStatus = (signal?: AbortSignal) =>
   request<MarketStatus>('/api/market-status', { signal })

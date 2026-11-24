@@ -104,6 +104,19 @@ it('ganti range kembali ke loading dan mengambil range baru', async () => {
   expect(result.current.state).toEqual({ status: 'ok', series: five })
 })
 
+it('state loading stabil antar render saat menunggu data baru', async () => {
+  const { result, rerender } = renderHook(
+    ({ range }: { range: CandleRange }) => useCandles('NVDA', range, 'live'),
+    { initialProps: { range: '1d' as CandleRange } },
+  )
+  await act(async () => pending[0].resolve(series('NVDA', '1d')))
+
+  rerender({ range: '5d' })
+  const first = result.current.state
+  rerender({ range: '5d' })
+  expect(result.current.state).toBe(first)
+})
+
 it('reconnect mengambil ulang tanpa mengosongkan data', async () => {
   const { result, rerender } = renderHook(
     ({ connection }: { connection: ConnectionState }) => useCandles('NVDA', '1d', connection),

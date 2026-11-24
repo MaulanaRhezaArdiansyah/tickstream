@@ -9,6 +9,9 @@ export type CandlesState =
   | { status: 'ok'; series: CandleSeries }
   | { status: 'error'; message: string }
 
+// Satu objek tetap: objek baru tiap render bikin chart di-reset tiap ada tick.
+const LOADING: CandlesState = { status: 'loading' }
+
 /**
  * Ambil data candle historis dari server dan perbarui ulang saat WebSocket tersambung
  * kembali setelah putus (`reconnecting` → `live`), supaya lubang selama offline tertutup.
@@ -21,7 +24,7 @@ export function useCandles(
   const key = `${symbol}\0${range}`
   const [settled, setSettled] = useState<{ key: string; state: CandlesState }>({
     key,
-    state: { status: 'loading' },
+    state: LOADING,
   })
   // Naik tiap kali user klik "Coba lagi" atau koneksi pulih dari `reconnecting`.
   const [attempt, setAttempt] = useState(0)
@@ -62,14 +65,14 @@ export function useCandles(
     setSettled((prev) =>
       prev.key === key && prev.state.status === 'ok'
         ? prev
-        : { key, state: { status: 'loading' } },
+        : { key, state: LOADING },
     )
     setAttempt((n) => n + 1)
   }, [key])
 
   // Saat simbol/range berganti, langsung kembali ke `loading` di render yang sama tanpa
   // perlu memanggil `setState` sinkron di dalam `useEffect`.
-  const state: CandlesState = settled.key === key ? settled.state : { status: 'loading' }
+  const state: CandlesState = settled.key === key ? settled.state : LOADING
 
   return { state, retry }
 }

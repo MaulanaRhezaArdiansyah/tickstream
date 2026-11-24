@@ -324,7 +324,7 @@ main {
 }
 
 .chart-slot {
-  height: 318px;
+  height: 333px;
   border-bottom: 1px solid var(--line);
 }
 
